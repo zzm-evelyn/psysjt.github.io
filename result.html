@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>体验结果</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="result-container">
+    <!-- 完成标题 -->
+    <div class="completion-header">
+      <h1>🎉 体验完成</h1>
+      <p>以下是根据您的选择得出的个性画像概览。</p>
+    </div>
+
+    <!-- 结果内容 -->
+    <div id="resultContent">
+      <!-- 第一部分 -->
+      <div class="result-section">
+        <h2>第一部分 · 一级人格维度</h2>
+        <div id="parentDimensionScores"></div>
+      </div>
+
+      <!-- 第二部分 -->
+      <div class="result-section">
+        <h2>第二部分 · 子维度</h2>
+        <div id="facetDimensionScores"></div>
+      </div>
+
+      <!-- 第三部分 -->
+      <div class="result-section">
+        <h2>第三部分 · 总体得分</h2>
+        <div id="overallScore"></div>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:12px;">
+      <button class="btn btn-secondary" onclick="navigateTo('index.html')">返回首页</button>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/apiClient.js"></script>
+  <script src="js/mockData.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/scoring.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/result.js"></script>
+</body>
+</html>
