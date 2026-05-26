@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>情景体验</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="gameContainer" class="game-container">
+    <div class="game-card">
+      <!-- 进度条 -->
+      <div class="progress-container">
+        <div class="progress-bar-bg">
+          <div id="gameProgressFill" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <div id="gameProgressText" class="progress-text">场景 1 / 3</div>
+      </div>
+
+      <!-- 场景标题 -->
+      <div id="sceneTitle" class="game-scene-title"></div>
+
+      <!-- 场景正文 -->
+      <div id="sceneText" class="game-scene-text"></div>
+
+      <!-- 问句 -->
+      <div id="gameQuestionText" class="game-question-text"></div>
+
+      <!-- 选项 -->
+      <div id="gameOptions" class="game-options"></div>
+    </div>
+
+    <!-- 游戏完成区域 -->
+    <div id="gameCompleteArea" class="game-complete-area" style="display:none;">
+      <div style="font-size:3rem; margin-bottom:1rem;">🎊</div>
+      <h2>体验完成</h2>
+      <p>系统将根据本次情景体验的选择生成一份独立报告。</p>
+      <button id="finishGameBtn" class="btn btn-success btn-lg" onclick="finishGame()">
+        查看报告
+      </button>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/apiClient.js"></script>
+  <script src="js/mockData.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/scoring.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

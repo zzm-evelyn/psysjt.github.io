@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>情景体验研究</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="welcome-ornament">🌸</div>
+      <h1 class="study-title">情景体验研究</h1>
+      <p class="study-subtitle">
+        欢迎参加本次情景体验。请根据自己的真实感受选择最符合您的选项。
+      </p>
+
+      <div class="research-info">
+        <p><strong>研究说明</strong></p>
+        <p>本版本只包含一个情景测验，不包含前置问卷。</p>
+        <p>完成情景体验后，系统会根据您的选择生成一份独立报告。</p>
+      </div>
+
+      <div class="privacy-note">
+        <strong>隐私说明</strong><br>
+        本研究采用匿名方式收集数据。您的回答仅用于学术研究目的，不会与任何个人身份信息关联。
+      </div>
+
+      <div class="participant-id-section">
+        <label for="participantIdInput"><strong>请输入您的编号</strong></label>
+        <input id="participantIdInput" class="form-input participant-id-input" type="text" placeholder="留空将自动生成编号" autocomplete="off">
+      </div>
+
+      <button class="btn btn-primary btn-block btn-lg" onclick="startScenarioOnly()">
+        开始情景体验
+      </button>
+
+      <div id="participantIdDisplay" class="participant-id-display"></div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/apiClient.js"></script>
+  <script src="js/mockData.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/scoring.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const SCENARIO_ONLY_GAME_KEY = 'game_a';
+
+    function getScenarioOnlyGameKey() {
+      return normalizeGameKey(getQueryParam('game') || SCENARIO_ONLY_GAME_KEY);
+    }
+
+    async function startScenarioOnly() {
+      var customId = document.getElementById('participantIdInput') ? document.getElementById('participantIdInput').value.trim() : '';
+      await startParticipantSession(customId || undefined, { forceNew: true });
+      if (!hasBackendSession()) {
+        alert('后端连接失败，当前作答不会进入阿里云后台。请稍后重试，或先检查后端 API 是否可用。');
+        return;
+      }
+      localStorage.setItem('scenario_only_game_key', JSON.stringify(getScenarioOnlyGameKey()));
+      navigateTo('game.html?game=' + encodeURIComponent(getScenarioOnlyGameKey()));
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      var pid = localStorage.getItem('participant_id');
+      if (pid) {
+        var display = document.getElementById('participantIdDisplay');
+        if (display) {
+          display.textContent = '参与者编号：' + (getParticipantLabel() || JSON.parse(pid));
+        }
+      }
+    });
+  </script>
+</body>
+</html>
