@@ -617,6 +617,50 @@
 
         <div class="admin-card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
+            <h2>题前指导语组</h2>
+            <button class="admin-btn primary sm" onclick="showInstructionForm(null)">+ 新增指导语组</button>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr>
+                <th>ID</th><th>标题</th><th>适用题目</th><th>状态</th><th>操作</th>
+              </tr></thead>
+              <tbody id="instructionTableBody">
+                <tr><td colspan="5" class="admin-loading">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="instructionForm" class="admin-card" style="display:none;">
+          <h2 id="instructionFormTitle">新增指导语组</h2>
+          <div class="admin-form-row">
+            <label class="required">指导语组 ID</label>
+            <input id="qif_id" class="admin-input admin-input-sm" placeholder="instruction_001">
+          </div>
+          <div class="admin-form-row">
+            <label>标题（可选）</label>
+            <input id="qif_title" class="admin-input" placeholder="例如：请阅读以下情境说明">
+          </div>
+          <div class="admin-form-row">
+            <label class="required">指导语文本</label>
+            <textarea id="qif_text" class="admin-textarea" rows="5" placeholder="这段文字会显示在你指定的题目前面"></textarea>
+          </div>
+          <div class="admin-form-row">
+            <label class="required">适用题号</label>
+            <textarea id="qif_question_ids" class="admin-textarea" rows="3" placeholder="每行一个题号，例如：&#10;q_001&#10;q_002&#10;q_003"></textarea>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;">
+            <label class="admin-checkbox-label"><input id="qif_active" type="checkbox" checked> 启用</label>
+          </div>
+          <div class="admin-actions">
+            <button class="admin-btn primary" onclick="adminSaveInstructionBlock()">保存</button>
+            <button class="admin-btn" onclick="cancelInstructionForm()">取消</button>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
             <h2>问卷题目管理</h2>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <label class="admin-checkbox-label"><input id="showDeletedQuestions" type="checkbox" onchange="loadQuestionnaire()"> 显示已删除</label>
