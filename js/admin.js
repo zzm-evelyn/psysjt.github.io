@@ -7,6 +7,14 @@ let adminCurrentTab = 'overview';
 let cachedDimensions = [];
 let cachedQuestionnaireItems = [];
 let cachedScenes = [];
+let cachedQuestionnaireSettings = {
+  title: '',
+  intro_text: '',
+  start_button_text: '',
+  completion_text: '',
+  instruction_blocks: []
+};
+let editingInstructionBlockId = null;
 
 // ============================================================
 // 认证
@@ -259,26 +267,51 @@ async function loadQuestionnaire() {
 async function loadQuestionnaireSettings() {
   try {
     const settings = await apiGet('/admin/questionnaire-settings');
+    cachedQuestionnaireSettings = normalizeQuestionnaireSettings(settings);
     const titleEl = document.getElementById('qs_title');
     const introEl = document.getElementById('qs_intro_text');
     const startEl = document.getElementById('qs_start_button_text');
     const completionEl = document.getElementById('qs_completion_text');
-    if (titleEl) titleEl.value = settings.title || '';
-    if (introEl) introEl.value = settings.intro_text || '';
-    if (startEl) startEl.value = settings.start_button_text || '';
-    if (completionEl) completionEl.value = settings.completion_text || '';
+    if (titleEl) titleEl.value = cachedQuestionnaireSettings.title || '';
+    if (introEl) introEl.value = cachedQuestionnaireSettings.intro_text || '';
+    if (startEl) startEl.value = cachedQuestionnaireSettings.start_button_text || '';
+    if (completionEl) completionEl.value = cachedQuestionnaireSettings.completion_text || '';
+    renderInstructionBlocks();
   } catch (e) {
     adminToast('指导语加载失败: ' + e.message);
   }
 }
 
-async function adminSaveQuestionnaireSettings() {
-  const data = {
-    title: document.getElementById('qs_title').value.trim(),
-    intro_text: document.getElementById('qs_intro_text').value.trim(),
-    start_button_text: document.getElementById('qs_start_button_text').value.trim(),
-    completion_text: document.getElementById('qs_completion_text').value.trim()
+function normalizeQuestionnaireSettings(settings) {
+  settings = settings || {};
+  return {
+    title: settings.title || '',
+    intro_text: settings.intro_text || '',
+    start_button_text: settings.start_button_text || '',
+    completion_text: settings.completion_text || '',
+    instruction_blocks: Array.isArray(settings.instruction_blocks) ? settings.instruction_blocks.map(function (block, idx) {
+      return {
+        block_id: block.block_id || ('instruction_' + String(idx + 1).padStart(3, '0')),
+        title: block.title || '',
+        text: block.text || '',
+        question_ids: Array.isArray(block.question_ids) ? block.question_ids : [],
+        is_active: block.is_active !== false
+      };
+    }) : []
   };
+}
+
+function collectQuestionnaireSettingsFromForm() {
+  cachedQuestionnaireSettings.title = document.getElementById('qs_title').value.trim();
+  cachedQuestionnaireSettings.intro_text = document.getElementById('qs_intro_text').value.trim();
+  cachedQuestionnaireSettings.start_button_text = document.getElementById('qs_start_button_text').value.trim();
+  cachedQuestionnaireSettings.completion_text = document.getElementById('qs_completion_text').value.trim();
+  cachedQuestionnaireSettings.instruction_blocks = cachedQuestionnaireSettings.instruction_blocks || [];
+  return cachedQuestionnaireSettings;
+}
+
+async function adminSaveQuestionnaireSettings() {
+  const data = collectQuestionnaireSettingsFromForm();
 
   try {
     await apiPut('/admin/questionnaire-settings', data);
@@ -286,6 +319,128 @@ async function adminSaveQuestionnaireSettings() {
   } catch (e) {
     adminToast('指导语保存失败: ' + e.message);
   }
+}
+
+function renderInstructionBlocks() {
+  const tbody = document.getElementById('instructionTableBody');
+  if (!tbody) return;
+  const blocks = cachedQuestionnaireSettings.instruction_blocks || [];
+  if (blocks.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">暂无指导语组</td></tr>';
+    return;
+  }
+  tbody.innerHTML = blocks.map(function (block) {
+    const status = block.is_active !== false ? '<span class="status-badge completed">启用</span>' : '<span class="status-badge abandoned">停用</span>';
+    const questionIds = (block.question_ids || []).join(', ');
+    const actions = block.is_active !== false
+      ? '<button class="admin-btn sm" onclick="showInstructionForm(\'' + esc(block.block_id) + '\')">编辑</button> <button class="admin-btn sm danger" onclick="adminDeactivateInstructionBlock(\'' + esc(block.block_id) + '\')">停用</button>'
+      : '<button class="admin-btn sm" onclick="showInstructionForm(\'' + esc(block.block_id) + '\')">编辑</button> <button class="admin-btn sm" onclick="adminRestoreInstructionBlock(\'' + esc(block.block_id) + '\')">恢复</button>';
+    return '<tr><td>' + esc(block.block_id) + '</td><td>' + esc(block.title || '-') + '</td><td style="max-width:320px;word-break:break-all;">' + esc(questionIds || '-') + '</td><td>' + status + '</td><td>' + actions + '</td></tr>';
+  }).join('');
+}
+
+function nextInstructionBlockId() {
+  let maxNum = 0;
+  (cachedQuestionnaireSettings.instruction_blocks || []).forEach(function (block) {
+    const m = String(block.block_id || '').match(/^instruction_(\d+)$/);
+    if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+  });
+  return 'instruction_' + String(maxNum + 1).padStart(3, '0');
+}
+
+function parseInstructionQuestionIds(text) {
+  return String(text || '')
+    .split(/[\s,，;；]+/)
+    .map(function (id) { return id.trim(); })
+    .filter(Boolean)
+    .filter(function (id, idx, arr) { return arr.indexOf(id) === idx; });
+}
+
+function showInstructionForm(blockId) {
+  const form = document.getElementById('instructionForm');
+  if (!form) return;
+  form.style.display = 'block';
+  editingInstructionBlockId = blockId;
+
+  document.getElementById('instructionFormTitle').textContent = blockId ? '编辑指导语组' : '新增指导语组';
+  document.getElementById('qif_id').value = blockId || nextInstructionBlockId();
+  document.getElementById('qif_id').readOnly = !!blockId;
+  document.getElementById('qif_title').value = '';
+  document.getElementById('qif_text').value = '';
+  document.getElementById('qif_question_ids').value = '';
+  document.getElementById('qif_active').checked = true;
+
+  if (blockId) {
+    const block = (cachedQuestionnaireSettings.instruction_blocks || []).find(function (item) {
+      return item.block_id === blockId;
+    });
+    if (block) {
+      document.getElementById('qif_title').value = block.title || '';
+      document.getElementById('qif_text').value = block.text || '';
+      document.getElementById('qif_question_ids').value = (block.question_ids || []).join('\n');
+      document.getElementById('qif_active').checked = block.is_active !== false;
+    }
+  }
+}
+
+function cancelInstructionForm() {
+  const form = document.getElementById('instructionForm');
+  if (form) form.style.display = 'none';
+}
+
+async function adminSaveInstructionBlock() {
+  const blockId = document.getElementById('qif_id').value.trim();
+  const text = document.getElementById('qif_text').value.trim();
+  const questionIds = parseInstructionQuestionIds(document.getElementById('qif_question_ids').value);
+  if (!blockId) { adminToast('指导语组 ID 不能为空'); return; }
+  if (!text) { adminToast('指导语文本不能为空'); return; }
+  if (questionIds.length === 0) { adminToast('请至少填写一个适用题号'); return; }
+
+  const block = {
+    block_id: blockId,
+    title: document.getElementById('qif_title').value.trim(),
+    text: text,
+    question_ids: questionIds,
+    is_active: document.getElementById('qif_active').checked
+  };
+
+  const blocks = cachedQuestionnaireSettings.instruction_blocks || [];
+  const existingIndex = blocks.findIndex(function (item) { return item.block_id === blockId; });
+  if (existingIndex !== -1 && !editingInstructionBlockId) {
+    adminToast('指导语组 ID 已存在');
+    return;
+  }
+  if (existingIndex !== -1) {
+    blocks[existingIndex] = block;
+  } else {
+    blocks.push(block);
+  }
+  cachedQuestionnaireSettings.instruction_blocks = blocks;
+
+  try {
+    await adminSaveQuestionnaireSettings();
+    cancelInstructionForm();
+    renderInstructionBlocks();
+  } catch (e) {
+    adminToast('指导语组保存失败: ' + e.message);
+  }
+}
+
+async function adminDeactivateInstructionBlock(blockId) {
+  if (!confirm('确定停用指导语组 "' + blockId + '"？')) return;
+  const block = (cachedQuestionnaireSettings.instruction_blocks || []).find(function (item) { return item.block_id === blockId; });
+  if (!block) return;
+  block.is_active = false;
+  await adminSaveQuestionnaireSettings();
+  renderInstructionBlocks();
+}
+
+async function adminRestoreInstructionBlock(blockId) {
+  const block = (cachedQuestionnaireSettings.instruction_blocks || []).find(function (item) { return item.block_id === blockId; });
+  if (!block) return;
+  block.is_active = true;
+  await adminSaveQuestionnaireSettings();
+  renderInstructionBlocks();
 }
 
 function normalizeQuestionnairePages(items) {

@@ -5,6 +5,7 @@
 let currentPageIndex = 0;     // 当前页索引
 let pageGroups = [];          // 按 page 分组的页面列表 [[item, ...], ...]
 let currentSelections = {};   // {question_id: {optionId, value, rawScore}} 或 {question_id: {text: '...'}}
+let questionnaireInstructionBlocks = [];
 
 async function loadQuestionnaireSettingsFromApi() {
   try {
@@ -35,6 +36,12 @@ function applyQuestionnaireSettings(settings) {
   if (completionEl && settings.completion_text) {
     completionEl.textContent = '✓ ' + settings.completion_text;
   }
+
+  questionnaireInstructionBlocks = Array.isArray(settings.instruction_blocks)
+    ? settings.instruction_blocks.filter(function (block) {
+      return block && block.is_active !== false && block.text && Array.isArray(block.question_ids);
+    })
+    : [];
 }
 
 function renderMultilineText(container, text) {
@@ -182,7 +189,10 @@ function renderPage(pageIndex) {
   questionArea.offsetHeight;
   questionArea.style.animation = 'cardEntrance 0.4s ease-out';
 
+  var renderedInstructionIds = {};
   items.forEach(function (item, idx) {
+    renderInstructionBlocksForQuestion(questionArea, item.question_id, renderedInstructionIds);
+
     var qBlock = document.createElement('div');
     qBlock.className = 'question-block';
     qBlock.style.animation = 'cardEntrance 0.35s ease-out ' + (idx * 0.08) + 's both';
@@ -213,6 +223,37 @@ function renderPage(pageIndex) {
 
   // 更新导航按钮
   updateNavButtons();
+}
+
+function renderInstructionBlocksForQuestion(questionArea, questionId, renderedInstructionIds) {
+  (questionnaireInstructionBlocks || []).forEach(function (block) {
+    if (!block.question_ids || block.question_ids.indexOf(questionId) === -1) return;
+    if (renderedInstructionIds[block.block_id]) return;
+    renderedInstructionIds[block.block_id] = true;
+
+    var instruction = document.createElement('div');
+    instruction.className = 'research-info';
+    instruction.style.marginBottom = '18px';
+    instruction.style.animation = 'cardEntrance 0.35s ease-out both';
+
+    if (block.title) {
+      var title = document.createElement('p');
+      var strong = document.createElement('strong');
+      strong.textContent = block.title;
+      title.appendChild(strong);
+      instruction.appendChild(title);
+    }
+
+    String(block.text || '').split(/\n+/).forEach(function (line) {
+      var trimmed = line.trim();
+      if (!trimmed) return;
+      var p = document.createElement('p');
+      p.textContent = trimmed;
+      instruction.appendChild(p);
+    });
+
+    questionArea.appendChild(instruction);
+  });
 }
 
 /* ---- 渲染 Likert 水平量表 ---- */
