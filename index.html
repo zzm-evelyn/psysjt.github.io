@@ -72,7 +72,7 @@
       if (label) {
         display.textContent = '参与者编号：' + label;
       }
-      navigateTo('questionnaire.html');
+      await navigateToCurrentFlowOrFallback('questionnaire.html');
     }
 
     document.addEventListener('DOMContentLoaded', async function () {
