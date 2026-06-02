@@ -1185,17 +1185,20 @@ async function adminSaveQuestionnaireBlock() {
     adminToast('block_id 已存在');
     return;
   }
-  if (idx !== -1) cachedQuestionnaireBlocks[idx] = block;
-  else cachedQuestionnaireBlocks.push(block);
-  await adminPersistQuestionnaireBlocks();
-  cancelQuestionnaireBlockForm();
-}
-
-async function adminPersistQuestionnaireBlocks() {
-  await apiPut('/admin/questionnaire-blocks', { blocks: cachedQuestionnaireBlocks });
-  adminToast('问卷块已保存');
-  renderQuestionnaireBlockTable();
-  renderFlowStepTable();
+  // 先调用 API，成功后再更新本地缓存
+  const tempBlocks = idx !== -1
+    ? cachedQuestionnaireBlocks.map(function (item, i) { return i === idx ? block : item; })
+    : cachedQuestionnaireBlocks.concat([block]);
+  try {
+    await apiPut('/admin/questionnaire-blocks', { blocks: tempBlocks });
+    cachedQuestionnaireBlocks = tempBlocks;
+    adminToast('问卷块已保存');
+    renderQuestionnaireBlockTable();
+    renderFlowStepTable();
+    cancelQuestionnaireBlockForm();
+  } catch (e) {
+    adminToast('保存失败: ' + e.message);
+  }
 }
 
 async function adminCopyQuestionnaireBlock(blockId) {
@@ -1205,15 +1208,33 @@ async function adminCopyQuestionnaireBlock(blockId) {
   copy.block_id = nextQuestionnaireBlockId();
   copy.title = (copy.title || copy.block_id) + '（副本）';
   copy.is_active = true;
-  cachedQuestionnaireBlocks.push(copy);
-  await adminPersistQuestionnaireBlocks();
+  const tempBlocks = cachedQuestionnaireBlocks.concat([copy]);
+  try {
+    await apiPut('/admin/questionnaire-blocks', { blocks: tempBlocks });
+    cachedQuestionnaireBlocks = tempBlocks;
+    adminToast('问卷块已复制');
+    renderQuestionnaireBlockTable();
+    renderFlowStepTable();
+  } catch (e) {
+    adminToast('复制失败: ' + e.message);
+  }
 }
 
 async function adminDeactivateQuestionnaireBlock(blockId) {
-  const block = cachedQuestionnaireBlocks.find(function (item) { return item.block_id === blockId; });
-  if (!block) return;
-  block.is_active = false;
-  await adminPersistQuestionnaireBlocks();
+  const source = cachedQuestionnaireBlocks.find(function (item) { return item.block_id === blockId; });
+  if (!source) return;
+  const tempBlocks = cachedQuestionnaireBlocks.map(function (item) {
+    return item.block_id === blockId ? Object.assign({}, item, { is_active: false }) : item;
+  });
+  try {
+    await apiPut('/admin/questionnaire-blocks', { blocks: tempBlocks });
+    source.is_active = false;
+    adminToast('问卷块已停用');
+    renderQuestionnaireBlockTable();
+    renderFlowStepTable();
+  } catch (e) {
+    adminToast('停用失败: ' + e.message);
+  }
 }
 
 function renderFlowStepTable() {
