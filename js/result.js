@@ -2,6 +2,8 @@
    result.js — 情景游戏独立报告页
    ============================================================ */
 
+let currentReportFlowStep = null;
+
 async function initResult() {
   removeLegacyResultActions();
 
@@ -11,8 +13,26 @@ async function initResult() {
     return;
   }
 
+  if (getQueryParam('complete') === '1') {
+    await renderFlowComplete();
+    return;
+  }
+
   const reports = await getGameReports();
   const gameKey = getQueryParam('game');
+  const stepId = getQueryParam('step_id') || '';
+  if (stepId) {
+    const flow = await getCurrentFlow();
+    if (flow.flow_enabled && flow.current_step && flow.current_step.step_id === stepId) {
+      currentReportFlowStep = flow.current_step;
+    } else {
+      currentReportFlowStep = {
+        step_id: stepId,
+        type: 'report',
+        game_key: gameKey ? normalizeGameKey(gameKey) : ''
+      };
+    }
+  }
 
   if (gameKey) {
     const key = normalizeGameKey(gameKey);
@@ -41,6 +61,19 @@ async function renderSingleGameReport(report, gameKey) {
 
   renderReportSections(report);
   await renderReportActions(gameKey);
+}
+
+async function renderFlowComplete() {
+  removeLegacyResultActions();
+  const stepId = getQueryParam('step_id') || '';
+  if (stepId) {
+    try {
+      await completeFlowStep(stepId);
+    } catch (e) {
+      console.warn('[result] 瀹屾垚娴佺▼姝ラ澶辫触:', e.message);
+    }
+  }
+  await renderAllGameReports({});
 }
 
 async function renderAllGameReports(reports) {
@@ -87,6 +120,12 @@ async function renderReportActions(currentGameKey) {
   const actions = document.getElementById('gameReportActions');
   if (!actions) return;
 
+  if (currentReportFlowStep && currentReportFlowStep.step_id) {
+    actions.innerHTML = '<button class="btn btn-success btn-lg" onclick="finishFlowReportStep()">进行下一步</button>';
+    removeLegacyResultActions();
+    return;
+  }
+
   const order = normalizeGameOrder(await ensureGameOrder());
   const completed = getCompletedGameKeys();
   const nextIndex = order.findIndex(function (key) {
@@ -117,6 +156,23 @@ function renderFinalAction() {
 function goToNextGame(index) {
   setCurrentGameIndex(index);
   navigateTo('game.html');
+}
+
+async function finishFlowReportStep() {
+  if (!currentReportFlowStep || !currentReportFlowStep.step_id) {
+    navigateTo('result.html?complete=1');
+    return;
+  }
+  try {
+    const result = await completeFlowStep(currentReportFlowStep.step_id);
+    if (result && result.next_step) {
+      navigateToFlowStep(result.next_step);
+      return;
+    }
+    navigateTo('result.html?complete=1');
+  } catch (e) {
+    showWarning('流程推进失败：' + e.message);
+  }
 }
 
 function showWarning(message) {

@@ -7,6 +7,9 @@ let adminCurrentTab = 'overview';
 let cachedDimensions = [];
 let cachedQuestionnaireItems = [];
 let cachedScenes = [];
+let cachedQuestionnaireBlocks = [];
+let cachedExperimentFlow = null;
+let editingQuestionnaireBlockId = null;
 let cachedQuestionnaireSettings = {
   title: '',
   intro_text: '',
@@ -19,6 +22,81 @@ let editingInstructionBlockId = null;
 // ============================================================
 // 认证
 // ============================================================
+
+function ensureFlowAdminTab() {
+  const nav = document.getElementById('adminNav');
+  if (nav && !document.querySelector(".admin-nav-btn[data-tab='flow']")) {
+    const btn = document.createElement('button');
+    btn.className = 'admin-nav-btn';
+    btn.dataset.tab = 'flow';
+    btn.textContent = '实验流程';
+    btn.onclick = function () { switchAdminTab('flow'); };
+    const buttons = nav.querySelectorAll('.admin-nav-btn');
+    const afterScenes = buttons[2];
+    if (afterScenes && afterScenes.nextSibling) {
+      nav.insertBefore(btn, afterScenes.nextSibling);
+    } else {
+      nav.appendChild(btn);
+    }
+  }
+
+  const main = document.getElementById('mainApp');
+  if (!main || document.getElementById('tabFlow')) return;
+  const section = document.createElement('div');
+  section.id = 'tabFlow';
+  section.className = 'admin-section';
+  section.innerHTML = [
+    '<div class="admin-card">',
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">',
+        '<h2>实验流程</h2>',
+        '<button class="admin-btn primary sm" onclick="adminSaveExperimentFlow()">保存流程</button>',
+      '</div>',
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">',
+        '<label class="admin-checkbox-label"><input id="flow_enabled" type="checkbox"> 启用自定义实验流程</label>',
+      '</div>',
+      '<div class="admin-form-row"><label>最终结束语</label><input id="flow_complete_text" class="admin-input" placeholder="全部体验结束，感谢您的参与！"></div>',
+      '<div class="admin-actions">',
+        '<button class="admin-btn sm" onclick="adminAddFlowQuestionnaireStep()">+ 问卷步骤</button>',
+        '<button class="admin-btn sm" onclick="adminAddFlowGameGroupStep()">+ 故事组步骤</button>',
+        '<button class="admin-btn sm" onclick="adminAddFlowCompleteStep()">+ 结束步骤</button>',
+      '</div>',
+      '<div class="admin-table-wrap"><table class="admin-table">',
+        '<thead><tr><th>顺序</th><th>类型</th><th>名称</th><th>配置</th><th>启用</th><th>操作</th></tr></thead>',
+        '<tbody id="flowStepTableBody"><tr><td colspan="6" class="admin-loading">加载中...</td></tr></tbody>',
+      '</table></div>',
+    '</div>',
+    '<div class="admin-card">',
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">',
+        '<h2>问卷块</h2>',
+        '<button class="admin-btn primary sm" onclick="showQuestionnaireBlockForm(null)">+ 新增问卷块</button>',
+      '</div>',
+      '<div class="admin-table-wrap"><table class="admin-table">',
+        '<thead><tr><th>ID</th><th>名称</th><th>题目数</th><th>状态</th><th>操作</th></tr></thead>',
+        '<tbody id="questionnaireBlockTableBody"><tr><td colspan="5" class="admin-loading">加载中...</td></tr></tbody>',
+      '</table></div>',
+    '</div>',
+    '<div id="questionnaireBlockForm" class="admin-card" style="display:none;">',
+      '<h2 id="questionnaireBlockFormTitle">新增问卷块</h2>',
+      '<div class="admin-form-row"><label class="required">block_id</label><input id="qbf_id" class="admin-input admin-input-sm" placeholder="post_game_questionnaire"></div>',
+      '<div class="admin-form-row"><label>显示标题</label><input id="qbf_title" class="admin-input" placeholder="故事后问卷"></div>',
+      '<div class="admin-form-row"><label>指导语</label><textarea id="qbf_intro_text" class="admin-textarea" rows="4" placeholder="被试进入该问卷块前看到的文字"></textarea></div>',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">',
+        '<div><label>开始按钮文字</label><input id="qbf_start_button_text" class="admin-input" placeholder="开始作答"></div>',
+        '<div><label>完成提示</label><input id="qbf_completion_text" class="admin-input" placeholder="问卷已提交，非常感谢！"></div>',
+      '</div>',
+      '<div class="admin-form-row"><label>包含题号</label><textarea id="qbf_question_ids" class="admin-textarea" rows="5" placeholder="每行一个题号；留空表示使用全部启用题目"></textarea></div>',
+      '<label class="admin-checkbox-label"><input id="qbf_active" type="checkbox" checked> 启用</label>',
+      '<div class="admin-actions"><button class="admin-btn primary" onclick="adminSaveQuestionnaireBlock()">保存问卷块</button><button class="admin-btn" onclick="cancelQuestionnaireBlockForm()">取消</button></div>',
+    '</div>'
+  ].join('');
+
+  const participants = document.getElementById('tabParticipants');
+  if (participants && participants.parentNode) {
+    participants.parentNode.insertBefore(section, participants);
+  } else {
+    main.appendChild(section);
+  }
+}
 
 async function adminLogin() {
   const password = document.getElementById('adminPassword').value;
@@ -48,6 +126,7 @@ function adminLogout() {
 function showAdminApp() {
   document.getElementById('loginSection').style.display = 'none';
   document.getElementById('mainApp').style.display = 'block';
+  ensureFlowAdminTab();
   loadOverview();
   loadDimensions();
 }
@@ -61,8 +140,9 @@ function switchAdminTab(tab) {
 
   // Nav
   document.querySelectorAll('.admin-nav-btn').forEach(b => b.classList.remove('active'));
+  ensureFlowAdminTab();
   const navBtns = document.querySelectorAll('.admin-nav-btn');
-  const tabMap = { overview: 0, questionnaire: 1, scenes: 2, dimensions: 3, participants: 4, export: 5 };
+  const tabMap = { overview: 0, questionnaire: 1, scenes: 2, flow: 3, dimensions: 4, participants: 5, export: 6 };
   const idx = tabMap[tab];
   if (navBtns[idx]) navBtns[idx].classList.add('active');
 
@@ -79,6 +159,7 @@ function switchAdminTab(tab) {
       loadQuestionnaire();
       break;
     case 'scenes': loadScenes(); break;
+    case 'flow': loadExperimentFlowAdmin(); break;
     case 'dimensions': loadDimensions(); break;
     case 'participants': loadParticipants(); break;
     case 'export': initExport(); break;
@@ -697,11 +778,16 @@ async function loadScenes() {
 
 function normalizeAdminGameKey(key) {
   key = String(key || '').trim().toLowerCase();
+  key = key.replace(/\s+/g, '_');
+  if (!key) return 'game_a';
+  if (key === 'a' || key === 'gamea') return 'game_a';
   if (key === 'game_b' || key === 'b' || key === 'gameb') return 'game_b';
-  return 'game_a';
+  return key;
 }
 
 function defaultAdminGameTitle(key) {
+  const normalized = normalizeAdminGameKey(key);
+  if (normalized !== 'game_a' && normalized !== 'game_b') return normalized;
   return normalizeAdminGameKey(key) === 'game_b' ? '情景游戏B' : '情景游戏A';
 }
 
@@ -713,6 +799,18 @@ function syncSceneGameTitle() {
   if (!current || current === '情景游戏A' || current === '情景游戏B') {
     titleEl.value = defaultAdminGameTitle(keyEl.value);
   }
+}
+
+function ensureSceneGameKeyInput() {
+  const keyEl = document.getElementById('sf_game_key');
+  if (!keyEl || keyEl.tagName === 'INPUT') return;
+  const input = document.createElement('input');
+  input.id = 'sf_game_key';
+  input.className = 'admin-input';
+  input.placeholder = 'game_a / game_b / game_c';
+  input.value = keyEl.value || 'game_a';
+  input.onchange = syncSceneGameTitle;
+  keyEl.parentNode.replaceChild(input, keyEl);
 }
 
 function nextSceneId(scenes) {
@@ -731,6 +829,7 @@ let editingSceneId = null;
 function showSceneForm(sceneId) {
   const form = document.getElementById('sceneForm');
   form.style.display = 'block';
+  ensureSceneGameKeyInput();
   editingSceneId = sceneId;
 
   document.getElementById('sceneFormTitle').textContent = sceneId ? '编辑情景' : '新增情景';
@@ -923,6 +1022,345 @@ function collectOptions(prefix) {
 }
 
 // ============================================================
+// Experiment Flow
+// ============================================================
+
+async function loadExperimentFlowAdmin() {
+  ensureFlowAdminTab();
+  try {
+    const results = await Promise.all([
+      apiGet('/admin/questionnaire-blocks'),
+      apiGet('/admin/experiment-flow'),
+      apiGet('/admin/questionnaire'),
+      apiGet('/admin/game-scenes')
+    ]);
+    cachedQuestionnaireBlocks = normalizeQuestionnaireBlocks(results[0]);
+    cachedExperimentFlow = normalizeExperimentFlow(results[1]);
+    cachedQuestionnaireItems = normalizeQuestionnairePages(results[2] || []);
+    cachedScenes = results[3] || [];
+
+    const enabledEl = document.getElementById('flow_enabled');
+    const completeEl = document.getElementById('flow_complete_text');
+    if (enabledEl) enabledEl.checked = cachedExperimentFlow.enabled === true;
+    if (completeEl) completeEl.value = cachedExperimentFlow.complete_text || '全部体验结束，感谢您的参与！';
+    renderQuestionnaireBlockTable();
+    renderFlowStepTable();
+  } catch (e) {
+    adminToast('实验流程加载失败: ' + e.message);
+  }
+}
+
+function normalizeQuestionnaireBlocks(blocks) {
+  return (Array.isArray(blocks) ? blocks : []).map(function (block, idx) {
+    return {
+      block_id: block.block_id || ('questionnaire_block_' + String(idx + 1).padStart(3, '0')),
+      title: block.title || '',
+      intro_text: block.intro_text || '',
+      start_button_text: block.start_button_text || '',
+      completion_text: block.completion_text || '',
+      question_ids: Array.isArray(block.question_ids) ? block.question_ids : [],
+      is_active: block.is_active !== false
+    };
+  });
+}
+
+function normalizeExperimentFlow(flow) {
+  flow = flow || {};
+  return {
+    enabled: flow.enabled === true,
+    complete_text: flow.complete_text || '全部体验结束，感谢您的参与！',
+    steps: Array.isArray(flow.steps) ? flow.steps.map(function (step, idx) {
+      return {
+        step_id: step.step_id || ('step_' + String(idx + 1).padStart(3, '0')),
+        type: step.type || 'questionnaire',
+        label: step.label || '',
+        block_id: step.block_id || 'main_questionnaire',
+        game_keys: Array.isArray(step.game_keys) ? step.game_keys : [],
+        order_mode: step.order_mode || 'fixed',
+        post_questionnaire_block_id: step.post_questionnaire_block_id || '',
+        report_after_each: step.report_after_each !== false,
+        is_active: step.is_active !== false
+      };
+    }) : []
+  };
+}
+
+function parseAdminIdList(text) {
+  return String(text || '')
+    .split(/[\s,，;；]+/)
+    .map(function (id) { return id.trim(); })
+    .filter(Boolean)
+    .filter(function (id, idx, arr) { return arr.indexOf(id) === idx; });
+}
+
+function getAvailableAdminGameKeys() {
+  const keys = [];
+  (cachedScenes || []).forEach(function (scene) {
+    const key = normalizeAdminGameKey(scene.game_key || 'game_a');
+    if (keys.indexOf(key) === -1) keys.push(key);
+  });
+  return keys.length ? keys : ['game_a', 'game_b'];
+}
+
+function blockOptionsHtml(selected, includeEmpty) {
+  let html = includeEmpty ? '<option value="">不添加故事后问卷</option>' : '';
+  html += (cachedQuestionnaireBlocks || []).filter(function (block) {
+    return block.is_active !== false;
+  }).map(function (block) {
+    const value = esc(block.block_id);
+    const label = esc((block.title || block.block_id) + ' (' + block.block_id + ')');
+    return '<option value="' + value + '"' + (block.block_id === selected ? ' selected' : '') + '>' + label + '</option>';
+  }).join('');
+  return html;
+}
+
+function renderQuestionnaireBlockTable() {
+  const tbody = document.getElementById('questionnaireBlockTableBody');
+  if (!tbody) return;
+  if (!cachedQuestionnaireBlocks.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">暂无问卷块</td></tr>';
+    return;
+  }
+  tbody.innerHTML = cachedQuestionnaireBlocks.map(function (block) {
+    const countText = block.question_ids && block.question_ids.length ? block.question_ids.length : '全部启用题目';
+    const status = block.is_active !== false ? '<span class="status-badge completed">启用</span>' : '<span class="status-badge abandoned">停用</span>';
+    return '<tr><td>' + esc(block.block_id) + '</td><td>' + esc(block.title || '-') + '</td><td>' + esc(String(countText)) + '</td><td>' + status + '</td><td><button class="admin-btn sm" onclick="showQuestionnaireBlockForm(\'' + esc(block.block_id) + '\')">编辑</button> <button class="admin-btn sm" onclick="adminCopyQuestionnaireBlock(\'' + esc(block.block_id) + '\')">复制</button> <button class="admin-btn sm danger" onclick="adminDeactivateQuestionnaireBlock(\'' + esc(block.block_id) + '\')">停用</button></td></tr>';
+  }).join('');
+}
+
+function nextQuestionnaireBlockId() {
+  let maxNum = 0;
+  cachedQuestionnaireBlocks.forEach(function (block) {
+    const m = String(block.block_id || '').match(/^questionnaire_block_(\d+)$/);
+    if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+  });
+  return 'questionnaire_block_' + String(maxNum + 1).padStart(3, '0');
+}
+
+function showQuestionnaireBlockForm(blockId) {
+  const form = document.getElementById('questionnaireBlockForm');
+  if (!form) return;
+  form.style.display = 'block';
+  editingQuestionnaireBlockId = blockId;
+  document.getElementById('questionnaireBlockFormTitle').textContent = blockId ? '编辑问卷块' : '新增问卷块';
+  document.getElementById('qbf_id').value = blockId || nextQuestionnaireBlockId();
+  document.getElementById('qbf_id').readOnly = !!blockId;
+  document.getElementById('qbf_title').value = '';
+  document.getElementById('qbf_intro_text').value = '';
+  document.getElementById('qbf_start_button_text').value = '';
+  document.getElementById('qbf_completion_text').value = '';
+  document.getElementById('qbf_question_ids').value = '';
+  document.getElementById('qbf_active').checked = true;
+
+  const block = cachedQuestionnaireBlocks.find(function (item) { return item.block_id === blockId; });
+  if (block) {
+    document.getElementById('qbf_title').value = block.title || '';
+    document.getElementById('qbf_intro_text').value = block.intro_text || '';
+    document.getElementById('qbf_start_button_text').value = block.start_button_text || '';
+    document.getElementById('qbf_completion_text').value = block.completion_text || '';
+    document.getElementById('qbf_question_ids').value = (block.question_ids || []).join('\n');
+    document.getElementById('qbf_active').checked = block.is_active !== false;
+  }
+}
+
+function cancelQuestionnaireBlockForm() {
+  const form = document.getElementById('questionnaireBlockForm');
+  if (form) form.style.display = 'none';
+}
+
+async function adminSaveQuestionnaireBlock() {
+  const blockId = document.getElementById('qbf_id').value.trim();
+  if (!blockId) { adminToast('block_id 不能为空'); return; }
+  const block = {
+    block_id: blockId,
+    title: document.getElementById('qbf_title').value.trim(),
+    intro_text: document.getElementById('qbf_intro_text').value.trim(),
+    start_button_text: document.getElementById('qbf_start_button_text').value.trim(),
+    completion_text: document.getElementById('qbf_completion_text').value.trim(),
+    question_ids: parseAdminIdList(document.getElementById('qbf_question_ids').value),
+    is_active: document.getElementById('qbf_active').checked
+  };
+  const idx = cachedQuestionnaireBlocks.findIndex(function (item) { return item.block_id === blockId; });
+  if (idx !== -1 && !editingQuestionnaireBlockId) {
+    adminToast('block_id 已存在');
+    return;
+  }
+  if (idx !== -1) cachedQuestionnaireBlocks[idx] = block;
+  else cachedQuestionnaireBlocks.push(block);
+  await adminPersistQuestionnaireBlocks();
+  cancelQuestionnaireBlockForm();
+}
+
+async function adminPersistQuestionnaireBlocks() {
+  await apiPut('/admin/questionnaire-blocks', { blocks: cachedQuestionnaireBlocks });
+  adminToast('问卷块已保存');
+  renderQuestionnaireBlockTable();
+  renderFlowStepTable();
+}
+
+async function adminCopyQuestionnaireBlock(blockId) {
+  const source = cachedQuestionnaireBlocks.find(function (item) { return item.block_id === blockId; });
+  if (!source) return;
+  const copy = JSON.parse(JSON.stringify(source));
+  copy.block_id = nextQuestionnaireBlockId();
+  copy.title = (copy.title || copy.block_id) + '（副本）';
+  copy.is_active = true;
+  cachedQuestionnaireBlocks.push(copy);
+  await adminPersistQuestionnaireBlocks();
+}
+
+async function adminDeactivateQuestionnaireBlock(blockId) {
+  const block = cachedQuestionnaireBlocks.find(function (item) { return item.block_id === blockId; });
+  if (!block) return;
+  block.is_active = false;
+  await adminPersistQuestionnaireBlocks();
+}
+
+function renderFlowStepTable() {
+  const tbody = document.getElementById('flowStepTableBody');
+  if (!tbody || !cachedExperimentFlow) return;
+  const steps = cachedExperimentFlow.steps || [];
+  if (!steps.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无流程步骤</td></tr>';
+    return;
+  }
+  tbody.innerHTML = steps.map(function (step, idx) {
+    return '<tr>' +
+      '<td>' + (idx + 1) + '</td>' +
+      '<td>' + flowTypeSelectHtml(idx, step.type) + '</td>' +
+      '<td><input class="admin-input admin-input-sm" value="' + esc(step.label || '') + '" onchange="adminUpdateFlowStep(' + idx + ', \'label\', this.value)"></td>' +
+      '<td>' + flowConfigHtml(idx, step) + '</td>' +
+      '<td><input type="checkbox" ' + (step.is_active !== false ? 'checked' : '') + ' onchange="adminUpdateFlowStep(' + idx + ', \'is_active\', this.checked)"></td>' +
+      '<td><button class="admin-btn sm" onclick="adminMoveFlowStep(' + idx + ', -1)">上移</button> <button class="admin-btn sm" onclick="adminMoveFlowStep(' + idx + ', 1)">下移</button> <button class="admin-btn sm danger" onclick="adminDeleteFlowStep(' + idx + ')">删除</button></td>' +
+    '</tr>';
+  }).join('');
+}
+
+function flowTypeSelectHtml(idx, type) {
+  const options = [
+    ['questionnaire', '问卷'],
+    ['game_group', '故事组'],
+    ['game', '单个故事'],
+    ['complete', '结束']
+  ];
+  return '<select class="admin-select" onchange="adminUpdateFlowStep(' + idx + ', \'type\', this.value)">' +
+    options.map(function (opt) {
+      return '<option value="' + opt[0] + '"' + (opt[0] === type ? ' selected' : '') + '>' + opt[1] + '</option>';
+    }).join('') + '</select>';
+}
+
+function flowConfigHtml(idx, step) {
+  if (step.type === 'questionnaire') {
+    return '<label>问卷块</label><select class="admin-select" onchange="adminUpdateFlowStep(' + idx + ', \'block_id\', this.value)">' + blockOptionsHtml(step.block_id, false) + '</select>';
+  }
+  if (step.type === 'game' || step.type === 'game_group') {
+    const keys = (step.game_keys && step.game_keys.length ? step.game_keys : getAvailableAdminGameKeys()).join('\n');
+    return [
+      '<label>故事 key（每行一个）</label>',
+      '<textarea class="admin-textarea" rows="3" onchange="adminUpdateFlowStep(' + idx + ', \'game_keys\', this.value)">' + esc(keys) + '</textarea>',
+      '<label>随机规则</label>',
+      '<select class="admin-select" onchange="adminUpdateFlowStep(' + idx + ', \'order_mode\', this.value)">',
+        '<option value="fixed"' + (step.order_mode === 'fixed' ? ' selected' : '') + '>固定顺序</option>',
+        '<option value="random"' + (step.order_mode === 'random' ? ' selected' : '') + '>完全随机</option>',
+        '<option value="counterbalanced"' + (step.order_mode === 'counterbalanced' ? ' selected' : '') + '>对半/均衡</option>',
+      '</select>',
+      '<label>每个故事后问卷</label>',
+      '<select class="admin-select" onchange="adminUpdateFlowStep(' + idx + ', \'post_questionnaire_block_id\', this.value)">' + blockOptionsHtml(step.post_questionnaire_block_id, true) + '</select>',
+      '<label class="admin-checkbox-label"><input type="checkbox" ' + (step.report_after_each !== false ? 'checked' : '') + ' onchange="adminUpdateFlowStep(' + idx + ', \'report_after_each\', this.checked)"> 每个故事后生成报告</label>'
+    ].join('');
+  }
+  return '<span style="color:#999;">完成后显示最终结束语</span>';
+}
+
+function adminUpdateFlowStep(idx, field, value) {
+  const step = cachedExperimentFlow.steps[idx];
+  if (!step) return;
+  if (field === 'type') {
+    step.type = value;
+    if (value === 'questionnaire' && !step.block_id) step.block_id = 'main_questionnaire';
+    if ((value === 'game' || value === 'game_group') && (!step.game_keys || !step.game_keys.length)) step.game_keys = getAvailableAdminGameKeys();
+  } else if (field === 'game_keys') {
+    step.game_keys = parseAdminIdList(value).map(normalizeAdminGameKey);
+  } else {
+    step[field] = value;
+  }
+  renderFlowStepTable();
+}
+
+function nextFlowStepId(type) {
+  const prefix = type || 'step';
+  let maxNum = 0;
+  (cachedExperimentFlow.steps || []).forEach(function (step) {
+    const m = String(step.step_id || '').match(new RegExp('^' + prefix + '_(\\d+)$'));
+    if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+  });
+  return prefix + '_' + String(maxNum + 1).padStart(3, '0');
+}
+
+function adminAddFlowQuestionnaireStep() {
+  cachedExperimentFlow.steps.push({
+    step_id: nextFlowStepId('questionnaire'),
+    type: 'questionnaire',
+    label: '问卷',
+    block_id: 'main_questionnaire',
+    is_active: true
+  });
+  renderFlowStepTable();
+}
+
+function adminAddFlowGameGroupStep() {
+  cachedExperimentFlow.steps.push({
+    step_id: nextFlowStepId('game_group'),
+    type: 'game_group',
+    label: '故事组',
+    game_keys: getAvailableAdminGameKeys(),
+    order_mode: 'counterbalanced',
+    post_questionnaire_block_id: '',
+    report_after_each: true,
+    is_active: true
+  });
+  renderFlowStepTable();
+}
+
+function adminAddFlowCompleteStep() {
+  cachedExperimentFlow.steps.push({
+    step_id: nextFlowStepId('complete'),
+    type: 'complete',
+    label: '结束',
+    is_active: true
+  });
+  renderFlowStepTable();
+}
+
+function adminMoveFlowStep(idx, direction) {
+  const nextIdx = idx + direction;
+  if (nextIdx < 0 || nextIdx >= cachedExperimentFlow.steps.length) return;
+  const steps = cachedExperimentFlow.steps;
+  const temp = steps[idx];
+  steps[idx] = steps[nextIdx];
+  steps[nextIdx] = temp;
+  renderFlowStepTable();
+}
+
+function adminDeleteFlowStep(idx) {
+  cachedExperimentFlow.steps.splice(idx, 1);
+  renderFlowStepTable();
+}
+
+async function adminSaveExperimentFlow() {
+  if (!cachedExperimentFlow) cachedExperimentFlow = normalizeExperimentFlow({});
+  cachedExperimentFlow.enabled = document.getElementById('flow_enabled').checked;
+  cachedExperimentFlow.complete_text = document.getElementById('flow_complete_text').value.trim() || '全部体验结束，感谢您的参与！';
+  try {
+    await apiPut('/admin/experiment-flow', cachedExperimentFlow);
+    adminToast('实验流程已保存');
+    loadExperimentFlowAdmin();
+  } catch (e) {
+    adminToast('实验流程保存失败: ' + e.message);
+  }
+}
+
+// ============================================================
 // Participants
 // ============================================================
 
@@ -1012,7 +1450,7 @@ async function showParticipantDetail(participantId) {
     // Questionnaire responses
     if (data.questionnaire_responses && data.questionnaire_responses.length > 0) {
       html += '<div class="detail-section"><h3>📝 问卷作答 (' + data.questionnaire_responses.length + ' 条)</h3>';
-      html += '<table class="admin-table"><thead><tr><th>题号</th><th>题目</th><th>回答</th><th>选项ID</th><th>原始分</th><th>最终分</th><th>维度</th><th>时间</th></tr></thead><tbody>';
+      html += '<table class="admin-table"><thead><tr><th>步骤</th><th>问卷块</th><th>关联故事</th><th>题号</th><th>题目</th><th>回答</th><th>选项ID</th><th>原始分</th><th>最终分</th><th>维度</th><th>时间</th></tr></thead><tbody>';
       data.questionnaire_responses.forEach(r => {
         var answerText = '';
         if (r.question_type === 'text_input') {
@@ -1020,7 +1458,7 @@ async function showParticipantDetail(participantId) {
         } else {
           answerText = esc(r.selected_option_text || '');
         }
-        html += '<tr><td>' + esc(r.question_id) + '</td><td style="max-width:220px;word-break:break-all;">' + esc(r.question_text || '') + '</td><td style="max-width:200px;word-break:break-all;">' + answerText + '</td><td>' + esc(r.selected_option_id || '-') + '</td><td>' + (r.raw_score || 0) + '</td><td>' + (r.final_score != null ? r.final_score : '-') + '</td><td>' + esc(r.dimension_name || '-') + '</td><td style="font-size:11px;color:#888;">' + formatDateTime(r.answered_at) + '</td></tr>';
+        html += '<tr><td>' + esc(r.step_id || '-') + '</td><td>' + esc(r.block_id || '-') + '</td><td>' + esc(r.game_title || r.game_key || '-') + '</td><td>' + esc(r.question_id) + '</td><td style="max-width:220px;word-break:break-all;">' + esc(r.question_text || '') + '</td><td style="max-width:200px;word-break:break-all;">' + answerText + '</td><td>' + esc(r.selected_option_id || '-') + '</td><td>' + (r.raw_score || 0) + '</td><td>' + (r.final_score != null ? r.final_score : '-') + '</td><td>' + esc(r.dimension_name || '-') + '</td><td style="font-size:11px;color:#888;">' + formatDateTime(r.answered_at) + '</td></tr>';
       });
       html += '</tbody></table></div>';
     } else {

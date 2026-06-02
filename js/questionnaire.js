@@ -7,9 +7,19 @@ let pageGroups = [];          // 按 page 分组的页面列表 [[item, ...], ..
 let currentSelections = {};   // {question_id: {optionId, value, rawScore}} 或 {question_id: {text: '...'}}
 let questionnaireInstructionBlocks = [];
 
+let currentFlowStep = null;
+let currentQuestionnaireBlockId = '';
+let currentQuestionnaireGameKey = '';
+let currentQuestionnaireGameTitle = '';
+let nextFlowStepAfterQuestionnaire = null;
+
 async function loadQuestionnaireSettingsFromApi() {
   try {
-    const settings = await apiGet('/questionnaire/settings');
+    let url = '/questionnaire/settings';
+    if (currentQuestionnaireBlockId) {
+      url += '?block_id=' + encodeURIComponent(currentQuestionnaireBlockId);
+    }
+    const settings = await apiGet(url);
     applyQuestionnaireSettings(settings || {});
   } catch (e) {
     console.warn('[questionnaire] 后端指导语加载失败，使用页面默认文字:', e.message);
@@ -57,7 +67,11 @@ function renderMultilineText(container, text) {
 
 async function loadQuestionnaireItemsFromApi() {
   try {
-    const remoteItems = await apiGet('/questionnaire');
+    let url = '/questionnaire';
+    if (currentQuestionnaireBlockId) {
+      url += '?block_id=' + encodeURIComponent(currentQuestionnaireBlockId);
+    }
+    const remoteItems = await apiGet(url);
     if (Array.isArray(remoteItems) && remoteItems.length > 0) {
       questionnaireItems = remoteItems.map(function (item, idx) {
         var displayOrder = item.display_order || idx + 1;
@@ -92,16 +106,69 @@ function showQuestionnaireLoadError(message) {
   intro.innerHTML = '<div class="error-message" style="display:block;">' + message + '</div>';
 }
 
+async function resolveQuestionnaireFlowContext() {
+  const stepId = getQueryParam('step_id') || '';
+  const blockId = getQueryParam('block_id') || '';
+  const gameKey = getQueryParam('game') || '';
+
+  currentQuestionnaireBlockId = blockId;
+  currentQuestionnaireGameKey = gameKey ? normalizeGameKey(gameKey) : '';
+
+  if (stepId || blockId) {
+    currentFlowStep = {
+      step_id: stepId,
+      type: 'questionnaire',
+      block_id: blockId,
+      game_key: currentQuestionnaireGameKey
+    };
+    return;
+  }
+
+  const flow = await getCurrentFlow();
+  if (flow.flow_enabled && flow.current_step && flow.current_step.type === 'questionnaire') {
+    currentFlowStep = flow.current_step;
+    currentQuestionnaireBlockId = currentFlowStep.block_id || '';
+    currentQuestionnaireGameKey = currentFlowStep.game_key ? normalizeGameKey(currentFlowStep.game_key) : '';
+    currentQuestionnaireGameTitle = currentFlowStep.game_title || '';
+  }
+}
+
+function questionnaireCompletionKey() {
+  const stepId = currentFlowStep && currentFlowStep.step_id ? currentFlowStep.step_id : '';
+  const blockId = currentQuestionnaireBlockId || 'main_questionnaire';
+  const gameKey = currentQuestionnaireGameKey || '';
+  return 'questionnaire_completed::' + [stepId, blockId, gameKey].join('::');
+}
+
+function findSavedQuestionnaireResponse(questionId) {
+  const responses = JSON.parse(localStorage.getItem('questionnaire_responses') || '[]');
+  const stepId = currentFlowStep && currentFlowStep.step_id ? currentFlowStep.step_id : '';
+  return responses.find(function (r) {
+    if (r.question_id !== questionId) return false;
+    if (!stepId && !currentQuestionnaireBlockId && !currentQuestionnaireGameKey) {
+      return !(r.step_id || r.block_id || r.game_key);
+    }
+    return String(r.step_id || '') === stepId &&
+      String(r.block_id || '') === String(currentQuestionnaireBlockId || '') &&
+      normalizeGameKey(r.game_key || '') === normalizeGameKey(currentQuestionnaireGameKey || '');
+  });
+}
+
 /* ---- 初始化 ---- */
 async function initQuestionnaire() {
   markQuestionnaireStart();
+  await resolveQuestionnaireFlowContext();
   await loadQuestionnaireSettingsFromApi();
   await loadQuestionnaireItemsFromApi();
 
   // 如果问卷已提交完成，直接显示完成区域（防止刷新后回到题目页）
   var alreadyCompleted = false;
   try {
-    alreadyCompleted = JSON.parse(localStorage.getItem('questionnaire_completed')) === true;
+    if (currentFlowStep && currentFlowStep.step_id) {
+      alreadyCompleted = JSON.parse(localStorage.getItem(questionnaireCompletionKey())) === true;
+    } else {
+      alreadyCompleted = JSON.parse(localStorage.getItem('questionnaire_completed')) === true;
+    }
   } catch (e) { /* ignore */ }
   if (alreadyCompleted) {
     document.getElementById('questionnaireIntro').style.display = 'none';
@@ -279,8 +346,7 @@ function renderLikertScale(container, item) {
   var optionsRow = document.createElement('div');
   optionsRow.className = 'likert-options-row';
 
-  var savedResponse = JSON.parse(localStorage.getItem('questionnaire_responses') || '[]')
-    .find(function (r) { return r.question_id === item.question_id; });
+  var savedResponse = findSavedQuestionnaireResponse(item.question_id);
 
   item.options.forEach(function (opt, i) {
     var optDiv = document.createElement('div');
@@ -406,8 +472,7 @@ function renderTextInput(container, item) {
   textarea.id = 'textarea_' + item.question_id;
 
   // 恢复已保存的文本
-  var savedResponse = JSON.parse(localStorage.getItem('questionnaire_responses') || '[]')
-    .find(function (r) { return r.question_id === item.question_id; });
+  var savedResponse = findSavedQuestionnaireResponse(item.question_id);
   if (savedResponse && savedResponse.raw_answer_text) {
     textarea.value = savedResponse.raw_answer_text;
     currentSelections[item.question_id] = { text: savedResponse.raw_answer_text };
@@ -430,6 +495,9 @@ function updateNavButtons() {
   var prevBtn = document.getElementById('prevBtn');
   var nextBtn = document.getElementById('nextBtn');
   var submitArea = document.getElementById('submitArea');
+  if (submitArea) submitArea.style.display = 'none';
+  var submitArea = document.getElementById('submitArea');
+  if (submitArea) submitArea.style.display = 'none';
   var completeArea = document.getElementById('completeArea');
 
   // 隐藏提交和完成区域
@@ -529,6 +597,10 @@ async function saveCurrentPageResponses() {
 
     var responseData = {
       participant_id: participantId,
+      step_id: currentFlowStep && currentFlowStep.step_id ? currentFlowStep.step_id : '',
+      block_id: currentQuestionnaireBlockId || '',
+      game_key: currentQuestionnaireGameKey || '',
+      game_title: currentQuestionnaireGameTitle || '',
       question_id: item.question_id,
       question_type: item.question_type,
       dimension_name: item.dimension_name,
@@ -566,8 +638,14 @@ async function handleSubmit() {
     submitBtn.textContent = '提交中...';
   }
 
+  var completeResult = null;
   try {
-    await completeQuestionnaire();
+    completeResult = await completeQuestionnaire({
+      step_id: currentFlowStep && currentFlowStep.step_id ? currentFlowStep.step_id : '',
+      block_id: currentQuestionnaireBlockId || '',
+      game_key: currentQuestionnaireGameKey || '',
+      game_title: currentQuestionnaireGameTitle || ''
+    });
   } catch (e) {
     console.error('[questionnaire] 提交问卷出错:', e);
     var err = document.getElementById('errorMessage');
@@ -588,11 +666,19 @@ async function handleSubmit() {
   if (completeArea) {
     completeArea.style.display = 'block';
     completeArea.style.animation = 'cardEntrance 0.5s ease-out';
+    var submitAreaAfterSubmit = document.getElementById('submitArea');
+    if (submitAreaAfterSubmit) submitAreaAfterSubmit.style.display = 'none';
+    nextFlowStepAfterQuestionnaire = completeResult && completeResult.next_step ? completeResult.next_step : null;
+    var nextBtn = completeArea.querySelector('button');
+    if (nextBtn && nextFlowStepAfterQuestionnaire) {
+      nextBtn.onclick = function () { navigateToFlowStep(nextFlowStepAfterQuestionnaire); };
+    }
   }
 
   if (submitBtn) {
     submitBtn.textContent = '已提交';
   }
+  localStorage.setItem(questionnaireCompletionKey(), JSON.stringify(true));
 }
 
 /* ---- 显示页面级错误 ---- */

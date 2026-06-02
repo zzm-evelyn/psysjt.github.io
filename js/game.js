@@ -6,6 +6,7 @@ let currentSceneIndex = 0;
 let currentGame = null;
 let orderedGameGroups = [];
 let gameCompleted = false;
+let currentFlowStep = null;
 
 function prepareGameScenes(rawScenes) {
   const scenes = (rawScenes || []).slice().sort(function (a, b) {
@@ -105,6 +106,10 @@ function showGameLoadError(message) {
 }
 
 function chooseCurrentGame() {
+  if (currentFlowStep && currentFlowStep.game_key && orderedGameGroups.length) {
+    setCurrentGameIndex(0);
+    return orderedGameGroups[0];
+  }
   const completed = getCompletedGameKeys();
   let index = getCurrentGameIndex();
   if (index >= orderedGameGroups.length) index = 0;
@@ -122,8 +127,27 @@ function chooseCurrentGame() {
   return orderedGameGroups[nextIndex];
 }
 
+async function resolveGameFlowContext() {
+  const stepId = getQueryParam('step_id') || '';
+  const gameKey = getQueryParam('game') || '';
+  if (stepId || gameKey) {
+    currentFlowStep = {
+      step_id: stepId,
+      type: 'game',
+      game_key: gameKey ? normalizeGameKey(gameKey) : ''
+    };
+    return;
+  }
+
+  const flow = await getCurrentFlow();
+  if (flow.flow_enabled && flow.current_step && flow.current_step.type === 'game') {
+    currentFlowStep = flow.current_step;
+  }
+}
+
 async function initGame() {
   markGameStart();
+  await resolveGameFlowContext();
   await loadGameScenesFromApi();
   if (!gameScenes || gameScenes.length === 0) {
     showGameLoadError('暂时没有可体验的剧情情景，请联系研究者检查后台配置。');
@@ -131,6 +155,12 @@ async function initGame() {
   }
 
   orderedGameGroups = await resolveOrderedGameGroups(buildGameGroups(gameScenes));
+  if (currentFlowStep && currentFlowStep.game_key) {
+    const targetKey = normalizeGameKey(currentFlowStep.game_key);
+    orderedGameGroups = orderedGameGroups.filter(function (group) {
+      return group.key === targetKey;
+    });
+  }
   currentGame = chooseCurrentGame();
   if (!currentGame) {
     navigateTo('result.html');
@@ -296,7 +326,13 @@ async function finishGame() {
   }
 
   try {
-    await completeGame(currentGame.key, currentGame.title);
+    const result = await completeGame(currentGame.key, currentGame.title, {
+      step_id: currentFlowStep && currentFlowStep.step_id ? currentFlowStep.step_id : ''
+    });
+    if (result && result.next_step) {
+      navigateToFlowStep(result.next_step);
+      return;
+    }
     navigateTo('result.html?game=' + encodeURIComponent(currentGame.key));
   } catch (e) {
     console.error('[game] 完成剧情失败:', e);
