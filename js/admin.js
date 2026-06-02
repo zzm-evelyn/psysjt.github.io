@@ -84,7 +84,7 @@ function ensureFlowAdminTab() {
         '<div><label>开始按钮文字</label><input id="qbf_start_button_text" class="admin-input" placeholder="开始作答"></div>',
         '<div><label>完成提示</label><input id="qbf_completion_text" class="admin-input" placeholder="问卷已提交，非常感谢！"></div>',
       '</div>',
-      '<div class="admin-form-row"><label>包含题号</label><textarea id="qbf_question_ids" class="admin-textarea" rows="5" placeholder="每行一个题号；留空表示使用全部启用题目"></textarea></div>',
+      '<div class="admin-form-row"><label>包含题号</label><textarea id="qbf_question_ids" class="admin-textarea" rows="5" placeholder="每行一个题号；main_questionnaire 留空时默认使用 q_001 到 q_163"></textarea></div>',
       '<label class="admin-checkbox-label"><input id="qbf_active" type="checkbox" checked> 启用</label>',
       '<div class="admin-actions"><button class="admin-btn primary" onclick="adminSaveQuestionnaireBlock()">保存问卷块</button><button class="admin-btn" onclick="cancelQuestionnaireBlockForm()">取消</button></div>',
     '</div>'
@@ -561,9 +561,36 @@ function cloneQuestionOptions(questionId, options) {
 
 let editingQuestionId = null;
 
+function ensureQuestionFormEnhancements() {
+  const textEl = document.getElementById('qf_text');
+  if (textEl && !document.getElementById('qf_image_url')) {
+    const row = document.createElement('div');
+    row.className = 'admin-form-row';
+    row.innerHTML = '<label>题目图片 URL/路径</label><input id="qf_image_url" class="admin-input" placeholder="https://... 或 assets/images/xxx.jpg">';
+    const parentRow = textEl.closest('.admin-form-row');
+    if (parentRow && parentRow.parentNode) {
+      parentRow.parentNode.insertBefore(row, parentRow.nextSibling);
+    }
+  }
+
+  const typeEl = document.getElementById('qf_type');
+  if (typeEl && !typeEl.dataset.singleChoiceReady) {
+    const current = typeEl.value || 'likert';
+    typeEl.innerHTML = [
+      '<option value="likert">likert</option>',
+      '<option value="single_choice">single_choice（单选，一行一个选项）</option>',
+      '<option value="multiple_choice">multiple_choice（兼容旧数据，按单选显示）</option>',
+      '<option value="text_input">text_input（填空题）</option>'
+    ].join('');
+    typeEl.value = current;
+    typeEl.dataset.singleChoiceReady = '1';
+  }
+}
+
 function showQuestionForm(questionId) {
   const form = document.getElementById('questionForm');
   form.style.display = 'block';
+  ensureQuestionFormEnhancements();
   editingQuestionId = questionId;
 
   document.getElementById('questionFormTitle').textContent = questionId ? '编辑题目' : '新增题目';
@@ -572,6 +599,7 @@ function showQuestionForm(questionId) {
   document.getElementById('qf_options').innerHTML = '';
   document.getElementById('qf_id').value = '';
   document.getElementById('qf_text').value = '';
+  if (document.getElementById('qf_image_url')) document.getElementById('qf_image_url').value = '';
   document.getElementById('qf_type').value = 'likert';
   document.getElementById('qf_required').checked = true;
   document.getElementById('qf_reverse').checked = false;
@@ -595,6 +623,9 @@ async function loadQuestionnaireItem(questionId) {
 
     document.getElementById('qf_id').value = item.question_id || '';
     document.getElementById('qf_text').value = item.question_text || '';
+    if (document.getElementById('qf_image_url')) {
+      document.getElementById('qf_image_url').value = item.question_image_url || '';
+    }
     document.getElementById('qf_type').value = item.question_type || 'likert';
     document.getElementById('qf_required').checked = item.required !== false;
     document.getElementById('qf_reverse').checked = item.reverse_scored === true;
@@ -635,6 +666,7 @@ async function adminSaveQuestion() {
   const data = {
     question_id: id,
     question_text: document.getElementById('qf_text').value.trim(),
+    question_image_url: document.getElementById('qf_image_url') ? document.getElementById('qf_image_url').value.trim() : '',
     question_type: document.getElementById('qf_type').value,
     required: document.getElementById('qf_required').checked,
     reverse_scored: document.getElementById('qf_reverse').checked,
@@ -1102,13 +1134,23 @@ function getAvailableAdminGameKeys() {
   return keys.length ? keys : ['game_a', 'game_b'];
 }
 
+function questionnaireBlockCountText(block) {
+  if (block && block.question_ids && block.question_ids.length) {
+    return String(block.question_ids.length);
+  }
+  if (block && block.block_id === 'main_questionnaire') {
+    return 'q_001-q_163';
+  }
+  return '全部启用题目';
+}
+
 function blockOptionsHtml(selected, includeEmpty) {
   let html = includeEmpty ? '<option value="">不添加故事后问卷</option>' : '';
   html += (cachedQuestionnaireBlocks || []).filter(function (block) {
     return block.is_active !== false;
   }).map(function (block) {
     const value = esc(block.block_id);
-    const label = esc((block.title || block.block_id) + ' (' + block.block_id + ')');
+    const label = esc((block.title || block.block_id) + ' (' + block.block_id + ', ' + questionnaireBlockCountText(block) + ')');
     return '<option value="' + value + '"' + (block.block_id === selected ? ' selected' : '') + '>' + label + '</option>';
   }).join('');
   return html;
@@ -1122,7 +1164,7 @@ function renderQuestionnaireBlockTable() {
     return;
   }
   tbody.innerHTML = cachedQuestionnaireBlocks.map(function (block) {
-    const countText = block.question_ids && block.question_ids.length ? block.question_ids.length : '全部启用题目';
+    const countText = questionnaireBlockCountText(block);
     const status = block.is_active !== false ? '<span class="status-badge completed">启用</span>' : '<span class="status-badge abandoned">停用</span>';
     return '<tr><td>' + esc(block.block_id) + '</td><td>' + esc(block.title || '-') + '</td><td>' + esc(String(countText)) + '</td><td>' + status + '</td><td><button class="admin-btn sm" onclick="showQuestionnaireBlockForm(\'' + esc(block.block_id) + '\')">编辑</button> <button class="admin-btn sm" onclick="adminCopyQuestionnaireBlock(\'' + esc(block.block_id) + '\')">复制</button> <button class="admin-btn sm danger" onclick="adminDeactivateQuestionnaireBlock(\'' + esc(block.block_id) + '\')">停用</button></td></tr>';
   }).join('');

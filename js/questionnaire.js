@@ -12,6 +12,7 @@ let currentQuestionnaireBlockId = '';
 let currentQuestionnaireGameKey = '';
 let currentQuestionnaireGameTitle = '';
 let nextFlowStepAfterQuestionnaire = null;
+let pageNavigationBusy = false;
 
 async function loadQuestionnaireSettingsFromApi() {
   try {
@@ -78,6 +79,7 @@ async function loadQuestionnaireItemsFromApi() {
         return {
           question_id: item.question_id || '',
           question_text: item.question_text || '',
+          question_image_url: item.question_image_url || '',
           question_type: item.question_type || 'likert',
           required: item.required !== false,
           page: item.page || Math.ceil(displayOrder / 5),
@@ -279,8 +281,12 @@ function renderPage(pageIndex) {
     }
 
     // 渲染对应控件
+    renderQuestionImage(qBlock, item.question_image_url);
+
     if (item.question_type === 'text_input') {
       renderTextInput(qBlock, item);
+    } else if (item.question_type === 'single_choice' || item.question_type === 'multiple_choice') {
+      renderSingleChoiceList(qBlock, item);
     } else {
       renderLikertScale(qBlock, item);
     }
@@ -324,6 +330,82 @@ function renderInstructionBlocksForQuestion(questionArea, questionId, renderedIn
 }
 
 /* ---- 渲染 Likert 水平量表 ---- */
+function renderQuestionImage(container, imageUrl) {
+  imageUrl = String(imageUrl || '').trim();
+  if (!imageUrl) return;
+  var wrapper = document.createElement('div');
+  wrapper.className = 'question-image-wrap';
+  var img = document.createElement('img');
+  img.className = 'question-image';
+  img.src = imageUrl;
+  img.alt = '题目配图';
+  img.loading = 'lazy';
+  img.onerror = function () {
+    wrapper.style.display = 'none';
+  };
+  wrapper.appendChild(img);
+  container.appendChild(wrapper);
+}
+
+function renderSingleChoiceList(container, item) {
+  var wrapper = document.createElement('div');
+  wrapper.className = 'single-choice-wrapper';
+  wrapper.dataset.questionId = item.question_id;
+
+  var savedResponse = findSavedQuestionnaireResponse(item.question_id);
+
+  item.options.forEach(function (opt, i) {
+    var btn = document.createElement('button');
+    btn.className = 'single-choice-option';
+    btn.type = 'button';
+    btn.dataset.optionId = opt.option_id;
+
+    var marker = document.createElement('span');
+    marker.className = 'single-choice-marker';
+    marker.textContent = String.fromCharCode(65 + i);
+
+    var text = document.createElement('span');
+    text.className = 'single-choice-text';
+    text.textContent = opt.option_text;
+
+    btn.appendChild(marker);
+    btn.appendChild(text);
+    btn.addEventListener('click', function () {
+      handleSingleChoiceSelect(item.question_id, opt.option_id, opt.score !== undefined ? opt.score : i + 1);
+    });
+    wrapper.appendChild(btn);
+  });
+
+  container.appendChild(wrapper);
+  if (savedResponse && savedResponse.selected_option_id) {
+    var savedOption = item.options.find(function (opt) { return opt.option_id === savedResponse.selected_option_id; });
+    if (savedOption) {
+      handleSingleChoiceSelect(
+        item.question_id,
+        savedOption.option_id,
+        savedOption.score !== undefined ? savedOption.score : item.options.indexOf(savedOption) + 1
+      );
+    }
+  }
+}
+
+function handleSingleChoiceSelect(questionId, optionId, rawScore) {
+  currentSelections[questionId] = {
+    optionId: optionId,
+    value: rawScore,
+    rawScore: rawScore
+  };
+
+  var wrapper = document.querySelector('.single-choice-wrapper[data-question-id="' + questionId + '"]');
+  if (!wrapper) return;
+  wrapper.querySelectorAll('.single-choice-option').forEach(function (btn) {
+    btn.classList.toggle('selected', btn.dataset.optionId === optionId);
+  });
+
+  var errContainer = wrapper.closest('.question-block').querySelector('.q-error');
+  if (errContainer) errContainer.style.display = 'none';
+}
+
 function renderLikertScale(container, item) {
   var wrapper = document.createElement('div');
   wrapper.className = 'likert-wrapper';
@@ -381,6 +463,14 @@ function renderLikertScale(container, item) {
 
   wrapper.appendChild(optionsRow);
   container.appendChild(wrapper);
+  if (savedResponse && savedResponse.selected_option_id) {
+    var savedIndex = item.options.findIndex(function (opt) {
+      return opt.option_id === savedResponse.selected_option_id;
+    });
+    if (savedIndex !== -1) {
+      handleLikertSelect(item.question_id, savedResponse.selected_option_id, savedIndex + 1, item.options.length);
+    }
+  }
 }
 
 /* ---- 处理 Likert 选择 ---- */
@@ -520,16 +610,36 @@ function updateNavButtons() {
 }
 
 /* ---- 上一页 ---- */
-function goToPrev() {
-  if (currentPageIndex > 0) {
-    // 保存当前页答案再翻页
-    saveCurrentPageResponses();
-    renderPage(currentPageIndex - 1);
+function setNextButtonBusy(isBusy) {
+  var nextBtn = document.getElementById('nextBtn');
+  if (!nextBtn) return;
+  nextBtn.disabled = isBusy;
+  nextBtn.classList.toggle('is-loading', isBusy);
+  if (isBusy) {
+    nextBtn.dataset.originalText = nextBtn.textContent || '';
+    nextBtn.textContent = '保存中...';
+  } else if (nextBtn.dataset.originalText) {
+    nextBtn.textContent = nextBtn.dataset.originalText;
+    delete nextBtn.dataset.originalText;
   }
+}
+
+async function goToPrev() {
+  if (pageNavigationBusy || currentPageIndex <= 0) return;
+  pageNavigationBusy = true;
+  try {
+    // 保存当前页答案再翻页
+    await saveCurrentPageResponses();
+  } catch (e) {
+    console.warn('[questionnaire] 返回上一页前保存作答失败，已保留本地缓存:', e);
+  }
+  pageNavigationBusy = false;
+  renderPage(currentPageIndex - 1);
 }
 
 /* ---- 下一页 / 完成作答 ---- */
 async function goToNext() {
+  if (pageNavigationBusy) return;
   var items = pageGroups[currentPageIndex];
 
   // 验证当前页所有必答题
@@ -553,9 +663,14 @@ async function goToNext() {
   }
 
   // 保存当前页所有答案到 localStorage，并等待后端确认
+  pageNavigationBusy = true;
+  setNextButtonBusy(true);
+
   try {
     await saveCurrentPageResponses();
   } catch (e) {
+    pageNavigationBusy = false;
+    setNextButtonBusy(false);
     console.error('[questionnaire] 保存作答失败:', e);
     var err = document.getElementById('errorMessage');
     if (err) {
@@ -566,6 +681,9 @@ async function goToNext() {
   }
 
   // 如果是最后一页 → 显示提交确认
+  pageNavigationBusy = false;
+  setNextButtonBusy(false);
+
   if (currentPageIndex === pageGroups.length - 1) {
     // 注意：不能隐藏 questionnaireBody（submitArea / completeArea 都在其内部）
     // 改为隐藏题目渲染区和导航按钮
