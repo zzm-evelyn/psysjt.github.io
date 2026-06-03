@@ -159,8 +159,12 @@ function clearPageError() {
 function normalizeQuestionImageUrl(imageUrl) {
   imageUrl = String(imageUrl || '').trim();
   if (!imageUrl) return '';
-  if (/^(https?:|data:|blob:|file:|\/)/i.test(imageUrl)) return imageUrl;
   imageUrl = imageUrl.replace(/\\/g, '/');
+  if (/^(https?:|data:|blob:)/i.test(imageUrl)) return imageUrl;
+  var assetMatch = imageUrl.match(/(?:^|\/)(assets\/images\/.+)$/i);
+  if (assetMatch) return assetMatch[1];
+  imageUrl = imageUrl.replace(/^file:\/+/, '');
+  imageUrl = imageUrl.replace(/^\/+/, '');
   imageUrl = imageUrl.replace(/^\.\/+/, '');
   imageUrl = imageUrl.replace(/^frontend\/+/, '');
   if (imageUrl.indexOf('/') !== -1) return imageUrl;

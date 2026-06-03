@@ -231,7 +231,7 @@ function renderParentScores(scores) {
   }
 
   let html = '<table class="dimension-table">';
-  html += '<tr><th class="dim-header">维度</th><th class="dim-header">得分/总分</th><th class="dim-header">题目数</th><th class="dim-header">平均分</th></tr>';
+  html += '<tr><th class="dim-header">维度</th><th class="dim-header">得分/满分</th><th class="dim-header">题目数</th><th class="dim-header">平均分</th></tr>';
 
   scores.forEach(function (s) {
     html += '<tr class="dimension-row">';
@@ -255,7 +255,7 @@ function renderFacetScores(scores) {
   }
 
   let html = '<table class="dimension-table">';
-  html += '<tr><th class="dim-header">子维度</th><th class="dim-header">得分/总分</th><th class="dim-header">题目数</th><th class="dim-header">平均分</th><th class="dim-header">说明</th></tr>';
+  html += '<tr><th class="dim-header">子维度</th><th class="dim-header">得分/满分</th><th class="dim-header">题目数</th><th class="dim-header">平均分</th><th class="dim-header">说明</th></tr>';
 
   scores.forEach(function (s) {
     const def = dimensionDefinitions.find(function (d) { return d.dimension_code === s.dimension_code; });
@@ -282,7 +282,7 @@ function renderOverallScore(score) {
     '<table class="dimension-table">',
     '<tr class="dimension-row overall-row">',
     '<td class="dim-label">总体得分</td>',
-    '<td class="dim-data">得分/总分：' + formatScoreOverMax(score.total_score, score.total_max_score) + '</td>',
+    '<td class="dim-data">得分/满分：' + formatScoreOverMax(score.total_score, score.total_max_score) + '</td>',
     '<td class="dim-data">总题数：' + (score.total_item_count || 0) + '</td>',
     '<td class="dim-data">平均分：' + (score.total_average_score != null ? score.total_average_score : 0) + '</td>',
     '</tr>',
