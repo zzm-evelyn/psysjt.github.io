@@ -378,7 +378,7 @@ body::before {
 /* ---- Navigation ---- */
 .nav-buttons {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 24px;
 }
