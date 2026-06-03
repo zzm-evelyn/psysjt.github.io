@@ -48,8 +48,6 @@
       <button class="btn btn-primary btn-block btn-lg" onclick="startStudy()">
         开始填写问卷
       </button>
-
-      <div id="participantIdDisplay" class="participant-id-display"></div>
     </div>
   </div>
 
@@ -67,23 +65,8 @@
         alert('后端连接失败，当前作答不会进入阿里云后台。请稍后重试，或先检查后端 API 是否可用。');
         return;
       }
-      var display = document.getElementById('participantIdDisplay');
-      var label = getParticipantLabel();
-      if (label) {
-        display.textContent = '参与者编号：' + label;
-      }
       await navigateToCurrentFlowOrFallback('questionnaire.html');
     }
-
-    document.addEventListener('DOMContentLoaded', async function () {
-      var pid = localStorage.getItem('participant_id');
-      if (pid) {
-        var display = document.getElementById('participantIdDisplay');
-        if (display) {
-          display.textContent = '参与者编号：' + (getParticipantLabel() || JSON.parse(pid));
-        }
-      }
-    });
   </script>
 </body>
 </html>
