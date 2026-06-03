@@ -216,6 +216,12 @@ function escHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function formatScoreOverMax(totalScore, totalMaxScore) {
+  const score = totalScore || 0;
+  if (totalMaxScore == null) return String(score);
+  return score + '/' + (totalMaxScore || 0);
+}
+
 function renderParentScores(scores) {
   const container = document.getElementById('parentDimensionScores');
   if (!container) return;
@@ -225,12 +231,12 @@ function renderParentScores(scores) {
   }
 
   let html = '<table class="dimension-table">';
-  html += '<tr><th class="dim-header">维度</th><th class="dim-header">总分</th><th class="dim-header">题目数</th><th class="dim-header">平均分</th></tr>';
+  html += '<tr><th class="dim-header">维度</th><th class="dim-header">得分/总分</th><th class="dim-header">题目数</th><th class="dim-header">平均分</th></tr>';
 
   scores.forEach(function (s) {
     html += '<tr class="dimension-row">';
     html += '<td class="dim-label">' + escHtml(s.parent_dimension || '-') + '</td>';
-    html += '<td class="dim-data">' + (s.total_score || 0) + '</td>';
+    html += '<td class="dim-data">' + formatScoreOverMax(s.total_score, s.total_max_score) + '</td>';
     html += '<td class="dim-data">' + (s.item_count || 0) + '</td>';
     html += '<td class="dim-data">' + (s.average_score != null ? s.average_score : 0) + '</td>';
     html += '</tr>';
@@ -249,7 +255,7 @@ function renderFacetScores(scores) {
   }
 
   let html = '<table class="dimension-table">';
-  html += '<tr><th class="dim-header">子维度</th><th class="dim-header">总分</th><th class="dim-header">题目数</th><th class="dim-header">平均分</th><th class="dim-header">说明</th></tr>';
+  html += '<tr><th class="dim-header">子维度</th><th class="dim-header">得分/总分</th><th class="dim-header">题目数</th><th class="dim-header">平均分</th><th class="dim-header">说明</th></tr>';
 
   scores.forEach(function (s) {
     const def = dimensionDefinitions.find(function (d) { return d.dimension_code === s.dimension_code; });
@@ -257,7 +263,7 @@ function renderFacetScores(scores) {
 
     html += '<tr class="dimension-row">';
     html += '<td class="dim-label">' + escHtml(s.dimension_name || '-') + '<br><span class="dim-desc">' + escHtml(desc) + '</span></td>';
-    html += '<td class="dim-data">' + (s.total_score || 0) + '</td>';
+    html += '<td class="dim-data">' + formatScoreOverMax(s.total_score, s.total_max_score) + '</td>';
     html += '<td class="dim-data">' + (s.item_count || 0) + '</td>';
     html += '<td class="dim-data">' + (s.average_score != null ? s.average_score : 0) + '</td>';
     html += '<td class="dim-data">' + ((s.item_count || 0) > 0 ? '' : '不足以计算') + '</td>';
@@ -276,7 +282,7 @@ function renderOverallScore(score) {
     '<table class="dimension-table">',
     '<tr class="dimension-row overall-row">',
     '<td class="dim-label">总体得分</td>',
-    '<td class="dim-data">总分：' + (score.total_score || 0) + '</td>',
+    '<td class="dim-data">得分/总分：' + formatScoreOverMax(score.total_score, score.total_max_score) + '</td>',
     '<td class="dim-data">总题数：' + (score.total_item_count || 0) + '</td>',
     '<td class="dim-data">平均分：' + (score.total_average_score != null ? score.total_average_score : 0) + '</td>',
     '</tr>',

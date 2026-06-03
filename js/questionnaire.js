@@ -136,10 +136,35 @@ async function resolveQuestionnaireFlowContext() {
 }
 
 function questionnaireCompletionKey() {
+  var participantId = '';
+  try {
+    participantId = JSON.parse(localStorage.getItem('participant_id') || '""') || '';
+  } catch (e) {
+    participantId = localStorage.getItem('participant_id') || '';
+  }
   const stepId = currentFlowStep && currentFlowStep.step_id ? currentFlowStep.step_id : '';
   const blockId = currentQuestionnaireBlockId || 'main_questionnaire';
   const gameKey = currentQuestionnaireGameKey || '';
-  return 'questionnaire_completed::' + [stepId, blockId, gameKey].join('::');
+  return 'questionnaire_completed::' + [participantId || 'unknown_participant', stepId, blockId, gameKey].join('::');
+}
+
+function clearPageError() {
+  var err = document.getElementById('errorMessage');
+  if (!err) return;
+  err.style.display = 'none';
+  err.style.animation = '';
+  err.textContent = '';
+}
+
+function normalizeQuestionImageUrl(imageUrl) {
+  imageUrl = String(imageUrl || '').trim();
+  if (!imageUrl) return '';
+  if (/^(https?:|data:|blob:|file:|\/)/i.test(imageUrl)) return imageUrl;
+  imageUrl = imageUrl.replace(/\\/g, '/');
+  imageUrl = imageUrl.replace(/^\.\/+/, '');
+  imageUrl = imageUrl.replace(/^frontend\/+/, '');
+  if (imageUrl.indexOf('/') !== -1) return imageUrl;
+  return 'assets/images/' + imageUrl;
 }
 
 function findSavedQuestionnaireResponse(questionId) {
@@ -166,9 +191,8 @@ async function initQuestionnaire() {
   // 如果问卷已提交完成，直接显示完成区域（防止刷新后回到题目页）
   var alreadyCompleted = false;
   try {
-    if (currentFlowStep && currentFlowStep.step_id) {
-      alreadyCompleted = JSON.parse(localStorage.getItem(questionnaireCompletionKey())) === true;
-    } else {
+    alreadyCompleted = JSON.parse(localStorage.getItem(questionnaireCompletionKey())) === true;
+    if (!alreadyCompleted && !(currentFlowStep && currentFlowStep.step_id)) {
       alreadyCompleted = JSON.parse(localStorage.getItem('questionnaire_completed')) === true;
     }
   } catch (e) { /* ignore */ }
@@ -228,6 +252,7 @@ function renderPage(pageIndex) {
   if (pageIndex < 0 || pageIndex >= pageGroups.length) return;
   currentPageIndex = pageIndex;
   var items = pageGroups[pageIndex];
+  clearPageError();
 
   // 进度条 — 显示 当前页码 / 总页数
   var progressFill = document.getElementById('progressFill');
@@ -331,7 +356,7 @@ function renderInstructionBlocksForQuestion(questionArea, questionId, renderedIn
 
 /* ---- 渲染 Likert 水平量表 ---- */
 function renderQuestionImage(container, imageUrl) {
-  imageUrl = String(imageUrl || '').trim();
+  imageUrl = normalizeQuestionImageUrl(imageUrl);
   if (!imageUrl) return;
   var wrapper = document.createElement('div');
   wrapper.className = 'question-image-wrap';
@@ -404,6 +429,7 @@ function handleSingleChoiceSelect(questionId, optionId, rawScore) {
 
   var errContainer = wrapper.closest('.question-block').querySelector('.q-error');
   if (errContainer) errContainer.style.display = 'none';
+  clearPageError();
 }
 
 function renderLikertScale(container, item) {
@@ -521,6 +547,7 @@ function handleLikertSelect(questionId, optionId, value, totalOptions) {
   // 隐藏错误
   var errContainer = wrapper.closest('.question-block').querySelector('.q-error');
   if (errContainer) errContainer.style.display = 'none';
+  clearPageError();
 }
 
 /* ---- 更新 Likert 连接线填充 ---- */
@@ -574,6 +601,7 @@ function renderTextInput(container, item) {
     // 隐藏错误
     var errEl = container.querySelector('.q-error');
     if (errEl) errEl.style.display = 'none';
+    clearPageError();
   });
 
   wrapper.appendChild(textarea);
@@ -595,7 +623,7 @@ function updateNavButtons() {
   if (completeArea) completeArea.style.display = 'none';
 
   if (prevBtn) {
-    prevBtn.style.display = currentPageIndex === 0 ? 'none' : 'inline-block';
+    prevBtn.style.display = 'none';
   }
   if (nextBtn) {
     if (currentPageIndex === pageGroups.length - 1) {
@@ -727,6 +755,8 @@ async function saveCurrentPageResponses() {
       parent_dimension_code: item.parent_dimension_code,
       facet_name: item.facet_name,
       facet_code: item.facet_code,
+      scale_min: item.scale_min,
+      scale_max: item.scale_max,
       answered_at: new Date().toISOString()
     };
 

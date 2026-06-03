@@ -46,6 +46,15 @@ function _removeItem(key) {
   localStorage.removeItem(key);
 }
 
+function _clearKeysByPrefix(prefix) {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.indexOf(prefix) === 0) keys.push(key);
+  }
+  keys.forEach(key => _removeItem(key));
+}
+
 // ============================================================
 // 参与者会话
 // ============================================================
@@ -539,4 +548,5 @@ function getParticipantData() {
  */
 function clearParticipantData() {
   Object.values(STORAGE_KEYS).forEach(key => _removeItem(key));
+  _clearKeysByPrefix('questionnaire_completed::');
 }
