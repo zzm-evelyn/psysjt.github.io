@@ -18,7 +18,7 @@
 
       <div class="research-info">
         <p><strong>📖 研究说明</strong></p>
-        <p>本研究包含两个部分，全程大约需要 50-60 分钟：</p>
+        <p>本研究包含两个部分，全程大约需要 5–10 分钟：</p>
         <p>
           <strong>第一部分 · 心理学问卷</strong><br>
           您将填写一份简短的人格问卷，从多个角度了解自己的个性特点。
@@ -60,7 +60,27 @@
   <script>
     async function startStudy() {
       var customId = document.getElementById('participantIdInput') ? document.getElementById('participantIdInput').value.trim() : '';
-      await startParticipantSession(customId || undefined, { forceNew: true });
+      var sessionResult = await startParticipantSession(customId || undefined, { forceNew: true });
+      if (sessionResult && typeof sessionResult === 'object') {
+        if (sessionResult.status === 'already_completed') {
+          alert('该编号已完成，不能重复填写。如需重测，请联系研究者使用新的编号。');
+          return;
+        }
+        if (sessionResult.status === 'resume_available') {
+          var shouldResume = confirm('检测到该编号有未完成作答。\n\n点击“确定”继续之前的作答；点击“取消”可以选择重新开始。');
+          if (shouldResume) {
+            sessionResult = await startParticipantSession(customId || undefined, { forceNew: true, action: 'resume' });
+          } else {
+            var shouldRestart = confirm('确定要重新开始吗？之前未完成的记录会标记为 abandoned，不会再用于本次作答。');
+            if (!shouldRestart) return;
+            sessionResult = await startParticipantSession(customId || undefined, { forceNew: true, action: 'restart' });
+          }
+        }
+        if (sessionResult && typeof sessionResult === 'object' && sessionResult.status === 'already_completed') {
+          alert('该编号已完成，不能重复填写。如需重测，请联系研究者使用新的编号。');
+          return;
+        }
+      }
       if (!hasBackendSession()) {
         alert('后端连接失败，当前作答不会进入阿里云后台。请稍后重试，或先检查后端 API 是否可用。');
         return;
