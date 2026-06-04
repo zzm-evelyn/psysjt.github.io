@@ -127,6 +127,23 @@ function chooseCurrentGame() {
   return orderedGameGroups[nextIndex];
 }
 
+function findSavedGameResponse(sceneId, gameKey) {
+  const responses = JSON.parse(localStorage.getItem('game_responses') || '[]');
+  const normalizedGameKey = normalizeGameKey(gameKey || (currentGame && currentGame.key) || '');
+  return responses.find(function (response) {
+    return response.scene_id === sceneId &&
+      normalizeGameKey(response.game_key || normalizedGameKey) === normalizedGameKey;
+  });
+}
+
+function firstIncompleteGameSceneIndex(scenes, gameKey) {
+  scenes = scenes || [];
+  for (var i = 0; i < scenes.length; i++) {
+    if (!findSavedGameResponse(scenes[i].scene_id, gameKey)) return i;
+  }
+  return scenes.length;
+}
+
 async function resolveGameFlowContext() {
   const stepId = getQueryParam('step_id') || '';
   const gameKey = getQueryParam('game') || '';
@@ -167,9 +184,9 @@ async function initGame() {
     return;
   }
 
-  currentSceneIndex = 0;
+  currentSceneIndex = firstIncompleteGameSceneIndex(currentGame.scenes, currentGame.key);
   gameCompleted = false;
-  renderScene(0);
+  renderScene(currentSceneIndex);
 }
 
 function renderScene(index) {

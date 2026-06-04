@@ -65,6 +65,26 @@ function _clearKeysByPrefix(prefix) {
  * 优先调用后端 API，回退到 localStorage
  * TODO: 后续可移除 localStorage 回退
  */
+function applyParticipantSession(result, externalId) {
+  _setItem(STORAGE_KEYS.PARTICIPANT_ID, result.participant_id);
+  _setItem(STORAGE_KEYS.PARTICIPANT_CODE, result.participant_code || '');
+  _setItem(STORAGE_KEYS.EXTERNAL_ID, result.external_id || externalId || '');
+  _setItem(STORAGE_KEYS.BACKEND_SESSION_ACTIVE, true);
+  _setItem(STORAGE_KEYS.START_TIME, result.start_time || new Date().toISOString());
+  _setItem(STORAGE_KEYS.GAME_ORDER, normalizeGameOrder(result.game_order));
+  _setItem(STORAGE_KEYS.CURRENT_GAME_INDEX, 0);
+  _setItem(STORAGE_KEYS.COMPLETED_GAME_KEYS, result.completed_game_keys || []);
+  _setItem(STORAGE_KEYS.GAME_REPORTS, result.game_reports || {});
+  _setItem(STORAGE_KEYS.QUESTIONNAIRE_RESPONSES, result.questionnaire_responses || []);
+  _setItem(STORAGE_KEYS.GAME_RESPONSES, result.game_responses || []);
+  _setItem(STORAGE_KEYS.FLOW_ENABLED, result.flow_enabled === true);
+  _setItem(STORAGE_KEYS.CURRENT_FLOW_STEP, result.current_step || null);
+  _setItem(STORAGE_KEYS.CURRENT_FLOW_INDEX, result.current_flow_index || 0);
+  _setItem(STORAGE_KEYS.FLOW_COMPLETED_STEP_IDS, result.flow_completed_step_ids || []);
+  _setItem(STORAGE_KEYS.FLOW_PLAN, result.flow_plan || (result.current_step ? [result.current_step] : []));
+  return result.participant_id;
+}
+
 async function startParticipantSession(customId, options) {
   options = options || {};
   if (options.forceNew) {
@@ -79,25 +99,15 @@ async function startParticipantSession(customId, options) {
 
   // 尝试调用后端 API。成功后必须使用后端返回的 participant_id。
   try {
-    const result = await apiPost('/participants/start', { external_id: externalId });
-    _setItem(STORAGE_KEYS.PARTICIPANT_ID, result.participant_id);
-    _setItem(STORAGE_KEYS.PARTICIPANT_CODE, result.participant_code || '');
-    _setItem(STORAGE_KEYS.EXTERNAL_ID, externalId);
-    _setItem(STORAGE_KEYS.BACKEND_SESSION_ACTIVE, true);
-    _setItem(STORAGE_KEYS.START_TIME, result.start_time);
-    _setItem(STORAGE_KEYS.GAME_ORDER, normalizeGameOrder(result.game_order));
-    _setItem(STORAGE_KEYS.CURRENT_GAME_INDEX, 0);
-    _setItem(STORAGE_KEYS.COMPLETED_GAME_KEYS, []);
-    _setItem(STORAGE_KEYS.GAME_REPORTS, {});
-    _setItem(STORAGE_KEYS.FLOW_ENABLED, result.flow_enabled === true);
-    _setItem(STORAGE_KEYS.CURRENT_FLOW_STEP, result.current_step || null);
-    _setItem(STORAGE_KEYS.CURRENT_FLOW_INDEX, 0);
-    _setItem(STORAGE_KEYS.FLOW_COMPLETED_STEP_IDS, []);
-    if (result.current_step) {
-      _setItem(STORAGE_KEYS.FLOW_PLAN, [result.current_step]);
+    const body = { external_id: externalId };
+    if (options.action) body.action = options.action;
+    const result = await apiPost('/participants/start', body);
+    if (result.status === 'resume_available' || result.status === 'already_completed') {
+      return result;
     }
-    console.log('[storage] 后端创建参与者成功:', result.participant_id, result.participant_code || '');
-    return result.participant_id;
+    const readyParticipantId = applyParticipantSession(result, externalId);
+    console.log('[storage] 后端参与者会话就绪:', result.status || 'created', readyParticipantId, result.participant_code || '');
+    return readyParticipantId;
   } catch (e) {
     console.warn('[storage] 后端不可用，使用本地模式:', e.message);
   }

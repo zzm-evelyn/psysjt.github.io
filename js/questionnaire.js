@@ -227,11 +227,11 @@ async function initQuestionnaire() {
       this.style.display = 'none';
       document.getElementById('questionnaireIntro').style.display = 'none';
       document.getElementById('questionnaireBody').style.display = 'block';
-      renderPage(0);
+      renderPage(firstIncompleteQuestionnairePageIndex());
     });
     return;
   }
-  renderPage(0);
+  renderPage(firstIncompleteQuestionnairePageIndex());
 }
 
 /* ---- 按 page 字段分组 ---- */
@@ -252,6 +252,28 @@ function buildPageGroups() {
 }
 
 /* ---- 渲染指定页 ---- */
+function isQuestionnaireItemAnswered(item) {
+  if (!item || item.required === false) return true;
+  const savedResponse = findSavedQuestionnaireResponse(item.question_id);
+  if (!savedResponse) return false;
+  if (item.question_type === 'text_input') {
+    return String(savedResponse.raw_answer_text || '').trim() !== '';
+  }
+  return !!savedResponse.selected_option_id;
+}
+
+function firstIncompleteQuestionnairePageIndex() {
+  if (!pageGroups || pageGroups.length === 0) return 0;
+  for (var i = 0; i < pageGroups.length; i++) {
+    var items = pageGroups[i] || [];
+    var hasIncomplete = items.some(function (item) {
+      return !isQuestionnaireItemAnswered(item);
+    });
+    if (hasIncomplete) return i;
+  }
+  return Math.max(0, pageGroups.length - 1);
+}
+
 function renderPage(pageIndex) {
   if (pageIndex < 0 || pageIndex >= pageGroups.length) return;
   currentPageIndex = pageIndex;
