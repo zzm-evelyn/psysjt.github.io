@@ -7,6 +7,8 @@ let currentGame = null;
 let orderedGameGroups = [];
 let gameCompleted = false;
 let currentFlowStep = null;
+let pendingGameChoice = null;
+let gameChoiceSubmitting = false;
 
 function prepareGameScenes(rawScenes) {
   const scenes = (rawScenes || []).slice().sort(function (a, b) {
@@ -144,6 +146,80 @@ function firstIncompleteGameSceneIndex(scenes, gameKey) {
   return scenes.length;
 }
 
+function setClassEnabled(element, className, enabled) {
+  if (!element) return;
+  const classes = (element.className || '').split(/\s+/).filter(Boolean);
+  const hasClass = classes.indexOf(className) !== -1;
+  if (enabled && !hasClass) classes.push(className);
+  if (!enabled && hasClass) {
+    element.className = classes.filter(function (name) { return name !== className; }).join(' ');
+    return;
+  }
+  element.className = classes.join(' ');
+}
+
+function updateGameOptionSelection(optionLabel) {
+  document.querySelectorAll('.game-option-btn').forEach(function (button) {
+    const selected = button.dataset.optionLabel === optionLabel;
+    setClassEnabled(button, 'selected', selected);
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+}
+
+function renderGameConfirmAction() {
+  const optionsContainer = document.getElementById('gameOptions');
+  if (!optionsContainer) return null;
+
+  let actions = optionsContainer.querySelector('.game-confirm-actions');
+  if (!actions) {
+    actions = document.createElement('div');
+    actions.className = 'game-confirm-actions';
+
+    const button = document.createElement('button');
+    button.id = 'gameConfirmChoiceBtn';
+    button.className = 'btn btn-success btn-lg game-confirm-btn';
+    button.type = 'button';
+    button.disabled = true;
+    button.textContent = '确认选择';
+    button.addEventListener('click', confirmGameChoice);
+    actions.appendChild(button);
+    optionsContainer.appendChild(actions);
+  }
+  return actions;
+}
+
+function updateGameConfirmAction() {
+  const actions = renderGameConfirmAction();
+  if (!actions) return;
+  const button = actions.querySelector('.game-confirm-btn');
+  const hasChoice = !!pendingGameChoice;
+  setClassEnabled(actions, 'visible', hasChoice);
+  if (button) {
+    button.disabled = !hasChoice || gameChoiceSubmitting;
+    button.textContent = gameChoiceSubmitting ? '保存中...' : '确认选择';
+  }
+}
+
+function buildGameResponseData(scene, option) {
+  return {
+    participant_id: JSON.parse(localStorage.getItem('participant_id')),
+    game_key: currentGame.key,
+    game_title: currentGame.title,
+    scene_id: scene.scene_id,
+    selected_option_label: option.option_label,
+    selected_option_text: option.option_text,
+    raw_score: option.score,
+    final_score: 0,
+    dimension_name: scene.dimension_name,
+    dimension_code: scene.dimension_code,
+    parent_dimension: scene.parent_dimension,
+    parent_dimension_code: scene.parent_dimension_code,
+    facet_name: scene.facet_name,
+    facet_code: scene.facet_code,
+    answered_at: new Date().toISOString()
+  };
+}
+
 async function resolveGameFlowContext() {
   const stepId = getQueryParam('step_id') || '';
   const gameKey = getQueryParam('game') || '';
@@ -198,6 +274,8 @@ function renderScene(index) {
 
   currentSceneIndex = index;
   const scene = scenes[index];
+  pendingGameChoice = null;
+  gameChoiceSubmitting = false;
 
   var completeArea = document.getElementById('gameCompleteArea');
   if (completeArea) completeArea.style.display = 'none';
@@ -256,6 +334,9 @@ function renderScene(index) {
   scene.options.forEach(function (opt, i) {
     const btn = document.createElement('button');
     btn.className = 'game-option-btn';
+    btn.type = 'button';
+    btn.dataset.optionLabel = opt.option_label;
+    btn.setAttribute('aria-pressed', 'false');
     btn.style.animation = 'cardEntrance 0.4s ease-out ' + (0.15 + i * 0.08) + 's both';
 
     const labelSpan = document.createElement('span');
@@ -274,48 +355,48 @@ function renderScene(index) {
     });
     optionsContainer.appendChild(btn);
   });
+  renderGameConfirmAction();
+  updateGameConfirmAction();
 }
 
-async function handleChoice(option) {
+function handleChoice(option) {
   const scenes = currentGame ? currentGame.scenes : [];
   const scene = scenes[currentSceneIndex];
   if (!scene) return;
+  if (gameChoiceSubmitting) return;
 
-  const responseData = {
-    participant_id: JSON.parse(localStorage.getItem('participant_id')),
-    game_key: currentGame.key,
-    game_title: currentGame.title,
-    scene_id: scene.scene_id,
-    selected_option_label: option.option_label,
-    selected_option_text: option.option_text,
-    raw_score: option.score,
-    final_score: 0,
-    dimension_name: scene.dimension_name,
-    dimension_code: scene.dimension_code,
-    parent_dimension: scene.parent_dimension,
-    parent_dimension_code: scene.parent_dimension_code,
-    facet_name: scene.facet_name,
-    facet_code: scene.facet_code,
-    answered_at: new Date().toISOString()
+  pendingGameChoice = {
+    option: option,
+    sceneIndex: currentSceneIndex
   };
+  updateGameOptionSelection(option.option_label);
+  updateGameConfirmAction();
+}
+
+async function confirmGameChoice() {
+  if (!pendingGameChoice || gameChoiceSubmitting) return;
+  const scenes = currentGame ? currentGame.scenes : [];
+  const scene = scenes[pendingGameChoice.sceneIndex];
+  const option = pendingGameChoice.option;
+  if (!scene || pendingGameChoice.sceneIndex !== currentSceneIndex) return;
+
+  const responseData = buildGameResponseData(scene, option);
+  gameChoiceSubmitting = true;
+  updateGameConfirmAction();
+
   try {
     await saveGameResponse(responseData);
   } catch (e) {
+    gameChoiceSubmitting = false;
+    updateGameConfirmAction();
     console.error('[game] 保存剧情作答失败:', e);
     alert('保存失败：' + e.message + '。请检查网络后重试。');
     return;
   }
 
-  const btn = document.querySelector('.game-option-btn:hover') ||
-    document.querySelectorAll('.game-option-btn')[scene.options.indexOf(option)];
-  if (btn) {
-    btn.style.transform = 'scale(0.97)';
-    setTimeout(function () {
-      renderScene(currentSceneIndex + 1);
-    }, 150);
-  } else {
-    renderScene(currentSceneIndex + 1);
-  }
+  pendingGameChoice = null;
+  gameChoiceSubmitting = false;
+  renderScene(currentSceneIndex + 1);
 }
 
 function showGameComplete() {
