@@ -706,6 +706,94 @@ body::before {
   color: var(--primary-hover);
 }
 
+.result-note {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  margin-bottom: 16px;
+}
+
+.norm-comparison-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.norm-comparison-row {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xs);
+  padding: 16px;
+  background: rgba(212, 135, 94, 0.03);
+}
+
+.norm-comparison-head,
+.norm-score-grid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.norm-comparison-head {
+  margin-bottom: 12px;
+}
+
+.norm-comparison-head strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.norm-comparison-head span {
+  color: var(--primary-hover);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.norm-score-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.norm-score-grid b {
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.norm-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.norm-bar {
+  height: 8px;
+  background: var(--border-light);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.norm-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.norm-bar.personal span {
+  background: var(--primary);
+}
+
+.norm-bar.norm span {
+  background: var(--accent);
+}
+
+.norm-meta {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
 .dim-desc {
   font-size: 0.8rem;
   color: var(--text-muted);
