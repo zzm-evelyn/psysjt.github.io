@@ -1110,7 +1110,7 @@ function normalizeExperimentFlow(flow) {
         game_keys: Array.isArray(step.game_keys) ? step.game_keys : [],
         order_mode: step.order_mode || 'fixed',
         post_questionnaire_block_id: step.post_questionnaire_block_id || '',
-        report_after_each: step.report_after_each !== false,
+        report_after_each: false,
         is_active: step.is_active !== false
       };
     }) : []
@@ -1328,8 +1328,7 @@ function flowConfigHtml(idx, step) {
         '<option value="counterbalanced"' + (step.order_mode === 'counterbalanced' ? ' selected' : '') + '>对半/均衡</option>',
       '</select>',
       '<label>每个故事后问卷</label>',
-      '<select class="admin-select" onchange="adminUpdateFlowStep(' + idx + ', \'post_questionnaire_block_id\', this.value)">' + blockOptionsHtml(step.post_questionnaire_block_id, true) + '</select>',
-      '<label class="admin-checkbox-label"><input type="checkbox" ' + (step.report_after_each !== false ? 'checked' : '') + ' onchange="adminUpdateFlowStep(' + idx + ', \'report_after_each\', this.checked)"> 每个故事后生成报告</label>'
+      '<select class="admin-select" onchange="adminUpdateFlowStep(' + idx + ', \'post_questionnaire_block_id\', this.value)">' + blockOptionsHtml(step.post_questionnaire_block_id, true) + '</select>'
     ].join('');
   }
   return '<span style="color:#999;">完成后显示最终结束语</span>';
@@ -1379,7 +1378,7 @@ function adminAddFlowGameGroupStep() {
     game_keys: getAvailableAdminGameKeys(),
     order_mode: 'counterbalanced',
     post_questionnaire_block_id: '',
-    report_after_each: true,
+    report_after_each: false,
     is_active: true
   });
   renderFlowStepTable();

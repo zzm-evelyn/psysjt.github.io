@@ -476,9 +476,8 @@ async function completeGame(gameKey, gameTitle, context) {
   }
 
   _setItem(STORAGE_KEYS.GAME_END_TIME, new Date().toISOString());
-  if (scores) {
-    saveGameReport(gameKey, scores);
-    saveResultScores(scores);
+  if (scores && scores.dimension_scores) {
+    saveResultScores(scores.dimension_scores);
   }
   const completed = markGameKeyCompleted(gameKey);
   const order = normalizeGameOrder(_getItem(STORAGE_KEYS.GAME_ORDER));

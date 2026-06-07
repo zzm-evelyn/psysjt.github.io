@@ -404,10 +404,25 @@ function showGameComplete() {
   if (gameCard) gameCard.style.display = 'none';
   var completeArea = document.getElementById('gameCompleteArea');
   if (completeArea) {
+    const order = normalizeGameOrder(_getItem(STORAGE_KEYS.GAME_ORDER));
+    const completed = getCompletedGameKeys();
+    const currentKey = currentGame ? normalizeGameKey(currentGame.key) : '';
+    const hasNextExperience = order.some(function (key) {
+      const normalized = normalizeGameKey(key);
+      return normalized !== currentKey && completed.indexOf(normalized) === -1;
+    });
     const h2 = completeArea.querySelector('h2');
     const p = completeArea.querySelector('p');
-    if (h2) h2.textContent = (currentGame ? currentGame.title : '情景游戏') + '完成';
-    if (p) p.textContent = '系统将根据本情景游戏的选择生成一份独立报告。';
+    const button = document.getElementById('finishGameBtn');
+    if (hasNextExperience) {
+      if (h2) h2.textContent = '第一个体验结束';
+      if (p) p.textContent = '您已完成本次剧情体验，请点击下方按钮进行下一体验。';
+      if (button) button.textContent = '进行下一体验';
+    } else {
+      if (h2) h2.textContent = '全部体验结束';
+      if (p) p.textContent = '您已完成全部剧情体验，请点击下方按钮查看人格报告。';
+      if (button) button.textContent = '查看人格报告';
+    }
     completeArea.style.display = 'block';
     completeArea.style.animation = 'cardEntrance 0.5s ease-out';
   }
@@ -420,7 +435,7 @@ async function finishGame() {
   var finishBtn = document.getElementById('finishGameBtn');
   if (finishBtn) {
     finishBtn.disabled = true;
-    finishBtn.textContent = '生成报告中...';
+    finishBtn.textContent = '保存中...';
   }
 
   try {
@@ -431,14 +446,24 @@ async function finishGame() {
       navigateToFlowStep(result.next_step);
       return;
     }
-    navigateTo('result.html?game=' + encodeURIComponent(currentGame.key));
+    const order = normalizeGameOrder(await ensureGameOrder());
+    const completed = getCompletedGameKeys();
+    const nextIndex = order.findIndex(function (key) {
+      return completed.indexOf(normalizeGameKey(key)) === -1;
+    });
+    if (nextIndex !== -1) {
+      setCurrentGameIndex(nextIndex);
+      navigateTo('game.html');
+      return;
+    }
+    navigateTo('result.html?complete=1');
   } catch (e) {
     console.error('[game] 完成剧情失败:', e);
     alert('提交失败：' + e.message + '。请检查网络后重试。');
     gameCompleted = false;
     if (finishBtn) {
       finishBtn.disabled = false;
-      finishBtn.textContent = '查看报告';
+      showGameComplete();
     }
   }
 }

@@ -1,5 +1,5 @@
 /* ============================================================
-   result.js — 情景游戏独立报告页
+   result.js — 最终人格报告页
    ============================================================ */
 
 let currentReportFlowStep = null;
@@ -13,39 +13,112 @@ async function initResult() {
     return;
   }
 
-  if (getQueryParam('complete') === '1') {
-    await renderFlowComplete();
-    return;
-  }
-
-  const reports = await getGameReports();
-  const gameKey = getQueryParam('game');
   const stepId = getQueryParam('step_id') || '';
-  if (stepId) {
-    const flow = await getCurrentFlow();
-    if (flow.flow_enabled && flow.current_step && flow.current_step.step_id === stepId) {
-      currentReportFlowStep = flow.current_step;
-    } else {
-      currentReportFlowStep = {
-        step_id: stepId,
-        type: 'report',
-        game_key: gameKey ? normalizeGameKey(gameKey) : ''
-      };
+  if (getQueryParam('complete') === '1' && stepId) {
+    try {
+      await completeFlowStep(stepId);
+    } catch (e) {
+      console.warn('[result] 完成流程步骤失败:', e.message);
     }
   }
 
-  if (gameKey) {
-    const key = normalizeGameKey(gameKey);
-    const report = reports[key];
+  try {
+    const report = await getResultScores();
     if (!report) {
-      showWarning('这份情景游戏报告还没有生成，请先完成对应的情景游戏。');
+      showWarning('人格报告尚未生成，请先完成全部流程。');
       return;
     }
-    await renderSingleGameReport(report, key);
+    renderPersonalityReport(report);
+  } catch (e) {
+    showWarning('人格报告加载失败：' + e.message);
+  }
+}
+
+function formatMean(value) {
+  const number = Number(value);
+  if (!isFinite(number)) return '-';
+  return number.toFixed(2);
+}
+
+function formatSigned(value) {
+  const number = Number(value);
+  if (!isFinite(number)) return '-';
+  return (number > 0 ? '+' : '') + number.toFixed(2);
+}
+
+function clampPercent(value, scaleMin, scaleMax) {
+  const number = Number(value);
+  if (!isFinite(number)) return 0;
+  const min = Number(scaleMin || 1);
+  const max = Number(scaleMax || 5);
+  if (max <= min) return 0;
+  return Math.max(0, Math.min(100, ((number - min) / (max - min)) * 100));
+}
+
+function renderPersonalityReport(report) {
+  removeLegacyResultActions();
+
+  const header = document.querySelector('.completion-header');
+  if (header) {
+    const title = header.querySelector('h1');
+    const desc = header.querySelector('p');
+    if (title) title.textContent = '人格报告';
+    if (desc) desc.textContent = '本报告基于前30题人格问卷作答生成，不使用剧情体验选择。';
+  }
+
+  const content = document.getElementById('resultContent');
+  if (!content) return;
+  const scores = report.personality_dimension_scores || report.parent_dimension_scores || [];
+  const scaleMin = report.scale_min || 1;
+  const scaleMax = report.scale_max || 5;
+
+  if (!scores.length) {
+    content.innerHTML = '<div class="warning-message"><h2>提示</h2><p>暂无可展示的人格报告数据。</p></div>';
     return;
   }
 
-  await renderAllGameReports(reports);
+  let html = [
+    '<div class="result-section">',
+      '<h2>大五人格维度</h2>',
+      '<p class="result-note">分数为个人均分，并与大学生常模均分进行比较。</p>',
+      '<div class="norm-comparison-list">'
+  ].join('');
+
+  scores.forEach(function (score) {
+    const personalWidth = clampPercent(score.mean_score, scaleMin, scaleMax);
+    const normWidth = clampPercent(score.norm_mean, scaleMin, scaleMax);
+    html += [
+      '<div class="norm-comparison-row">',
+        '<div class="norm-comparison-head">',
+          '<strong>' + escHtml(score.dimension || score.parent_dimension || '-') + '</strong>',
+          '<span>' + escHtml(score.comparison_label || '') + '</span>',
+        '</div>',
+        '<div class="norm-score-grid">',
+          '<div>个人均分<br><b>' + formatMean(score.mean_score) + '</b></div>',
+          '<div>常模均分<br><b>' + formatMean(score.norm_mean) + '</b></div>',
+          '<div>差值<br><b>' + formatSigned(score.difference_from_norm) + '</b></div>',
+        '</div>',
+        '<div class="norm-bars" aria-hidden="true">',
+          '<div class="norm-bar personal"><span style="width:' + personalWidth.toFixed(1) + '%"></span></div>',
+          '<div class="norm-bar norm"><span style="width:' + normWidth.toFixed(1) + '%"></span></div>',
+        '</div>',
+        '<div class="norm-meta">题目 ' + (score.answered_count || 0) + '/' + (score.expected_count || 0) +
+          '，常模N=' + (score.norm_sample_size || '-') +
+          (score.norm_note ? '，' + escHtml(score.norm_note) : '') +
+        '</div>',
+      '</div>'
+    ].join('');
+  });
+
+  html += [
+      '</div>',
+    '</div>',
+    '<div class="result-section">',
+      '<h2>报告说明</h2>',
+      '<p class="result-note">本报告只使用前30题人格问卷。标记为需要反向的题目已先换算到30题常模方向，再计算各维度均分。</p>',
+    '</div>'
+  ].join('');
+  content.innerHTML = html;
 }
 
 async function renderSingleGameReport(report, gameKey) {
