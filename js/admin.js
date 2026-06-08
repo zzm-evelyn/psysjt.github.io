@@ -327,11 +327,13 @@ async function adminDeactivateDim(code) {
 async function loadQuestionnaire() {
   const tbody = document.getElementById('questionnaireTableBody');
   try {
+    await loadQuestionnaireBlocksForQuestionTab();
     const items = await apiGet('/admin/questionnaire');
     cachedQuestionnaireItems = normalizeQuestionnairePages(items);
     const showDeletedEl = document.getElementById('showDeletedQuestions');
     const showDeleted = showDeletedEl ? showDeletedEl.checked : false;
-    const visibleItems = cachedQuestionnaireItems.filter(item => showDeleted || item.is_active !== false);
+    const visibleItems = questionItemsForCurrentBlock(cachedQuestionnaireItems)
+      .filter(item => showDeleted || item.is_active !== false);
     tbody.innerHTML = visibleItems.map(item => {
       const status = item.is_active !== false ? '<span class="status-badge completed">启用</span>' : '<span class="status-badge abandoned">停用</span>';
       const actions = item.is_active !== false
@@ -340,9 +342,152 @@ async function loadQuestionnaire() {
       return '<tr><td>' + esc(item.page || 1) + '</td><td>' + esc(item.display_order || '-') + '</td><td>' + esc(item.question_id) + '</td><td>' + esc(trunc(item.question_text, 40)) + '</td><td>' + esc(item.dimension_name || '-') + '</td><td>' + esc(item.question_type) + '</td><td>' + (item.required ? '✅' : '') + '</td><td>' + (item.reverse_scored ? '✅' : '') + '</td><td>' + status + '</td><td>' + actions + '</td></tr>';
     }).join('');
     if (visibleItems.length === 0) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">暂无数据</td></tr>';
+    refreshQuestionInsertOptions();
+    refreshExistingQuestionInsertOptions();
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="10" style="color:#e74c3c;">加载失败: ' + e.message + '</td></tr>';
   }
+}
+
+async function loadQuestionnaireBlocksForQuestionTab() {
+  const blocks = await apiGet('/admin/questionnaire-blocks');
+  cachedQuestionnaireBlocks = normalizeQuestionnaireBlocks(blocks);
+  renderQuestionBlockFilterOptions();
+  renderQuestionFormBlockOptions();
+}
+
+function questionBlockLabel(block) {
+  return (block.title || block.block_id) + '（' + block.block_id + '）';
+}
+
+function renderQuestionBlockFilterOptions() {
+  const select = document.getElementById('questionBlockFilter');
+  if (!select) return;
+  const current = select.value || '__all__';
+  select.innerHTML = '<option value="__all__">全部题库</option>' +
+    (cachedQuestionnaireBlocks || []).filter(function (block) {
+      return block.is_active !== false;
+    }).map(function (block) {
+      return '<option value="' + esc(block.block_id) + '">' + esc(questionBlockLabel(block)) + '</option>';
+    }).join('');
+  select.value = Array.from(select.options).some(function (option) { return option.value === current; }) ? current : '__all__';
+}
+
+function renderQuestionFormBlockOptions() {
+  const select = document.getElementById('qf_block_id');
+  if (!select) return;
+  const current = select.value || '';
+  select.innerHTML = '<option value="">不加入特定问卷组</option>' +
+    (cachedQuestionnaireBlocks || []).filter(function (block) {
+      return block.is_active !== false;
+    }).map(function (block) {
+      return '<option value="' + esc(block.block_id) + '">' + esc(questionBlockLabel(block)) + '</option>';
+    }).join('');
+  if (Array.from(select.options).some(function (option) { return option.value === current; })) {
+    select.value = current;
+  }
+}
+
+function currentQuestionBlockId() {
+  const select = document.getElementById('questionBlockFilter');
+  const value = select ? select.value : '__all__';
+  return value && value !== '__all__' ? value : '';
+}
+
+function questionItemsForBlock(items, blockId) {
+  if (!blockId) return (items || []).slice();
+  const block = (cachedQuestionnaireBlocks || []).find(function (item) { return item.block_id === blockId; });
+  if (!block) return [];
+  const ids = block.question_ids || [];
+  if (!ids.length) return (items || []).slice();
+  const orderMap = {};
+  ids.forEach(function (id, idx) { orderMap[canonicalAdminQuestionId(id)] = idx; });
+  return (items || [])
+    .filter(function (item) { return orderMap[canonicalAdminQuestionId(item.question_id)] !== undefined; })
+    .sort(function (a, b) {
+      return orderMap[canonicalAdminQuestionId(a.question_id)] - orderMap[canonicalAdminQuestionId(b.question_id)];
+    });
+}
+
+function questionItemsForCurrentBlock(items) {
+  return questionItemsForBlock(items, currentQuestionBlockId());
+}
+
+function canonicalAdminQuestionId(id) {
+  const m = String(id || '').trim().toLowerCase().match(/(\d+)$/);
+  if (m) return 'q_' + String(parseInt(m[1], 10)).padStart(3, '0');
+  return String(id || '').trim().toLowerCase();
+}
+
+function questionOptionLabel(item) {
+  return (item.display_order || '-') + '. ' + (item.question_id || '-') + ' ' + trunc(item.question_text || '', 30);
+}
+
+function refreshQuestionInsertOptions() {
+  const blockEl = document.getElementById('qf_block_id');
+  const modeEl = document.getElementById('qf_insert_mode');
+  const refEl = document.getElementById('qf_insert_question_id');
+  if (!blockEl || !modeEl || !refEl) return;
+
+  const blockId = blockEl.value || '';
+  const mode = modeEl.value || '';
+  const needsReference = mode === 'before' || mode === 'after';
+  const currentId = document.getElementById('qf_id') ? document.getElementById('qf_id').value.trim() : '';
+  const options = questionItemsForBlock(cachedQuestionnaireItems || [], blockId)
+    .filter(function (item) {
+      return item.question_id !== currentId && item.is_active !== false;
+    });
+
+  refEl.disabled = !needsReference || !blockId;
+  refEl.innerHTML = needsReference && blockId
+    ? options.map(function (item) {
+        return '<option value="' + esc(item.question_id || '') + '">' + esc(questionOptionLabel(item)) + '</option>';
+      }).join('')
+    : '<option value="">无需选择参考题目</option>';
+  if (needsReference && blockId && !options.length) {
+    refEl.innerHTML = '<option value="">当前组暂无可参考题目</option>';
+  }
+}
+
+function refreshExistingQuestionInsertOptions() {
+  const modeEl = document.getElementById('existingQuestionInsertMode');
+  const refEl = document.getElementById('existingQuestionReferenceId');
+  if (!modeEl || !refEl) return;
+  const blockId = currentQuestionBlockId();
+  const mode = modeEl.value || 'append';
+  const needsReference = mode === 'before' || mode === 'after';
+  const options = questionItemsForBlock(cachedQuestionnaireItems || [], blockId)
+    .filter(function (item) { return item.is_active !== false; });
+  refEl.disabled = !needsReference || !blockId;
+  refEl.innerHTML = needsReference && blockId
+    ? options.map(function (item) {
+        return '<option value="' + esc(item.question_id || '') + '">' + esc(questionOptionLabel(item)) + '</option>';
+      }).join('')
+    : '<option value="">无需参考题目</option>';
+  if (needsReference && blockId && !options.length) {
+    refEl.innerHTML = '<option value="">当前组暂无可参考题目</option>';
+  }
+}
+
+function collectQuestionInsertConfig() {
+  const blockEl = document.getElementById('qf_block_id');
+  const modeEl = document.getElementById('qf_insert_mode');
+  const refEl = document.getElementById('qf_insert_question_id');
+  if (!blockEl || !modeEl) return {};
+  const blockId = blockEl.value || '';
+  if (!blockId) return {};
+
+  let mode = modeEl.value || '';
+  if (!editingQuestionId && !mode) mode = 'append';
+  if (!mode) return { block_id: blockId };
+
+  const config = { block_id: blockId, insert_mode: mode };
+  if (mode === 'before' || mode === 'after') {
+    const referenceId = refEl ? refEl.value : '';
+    if (!referenceId) return { error: '请选择要插入到哪道题目前后' };
+    config.reference_question_id = referenceId;
+  }
+  return config;
 }
 
 async function loadQuestionnaireSettings() {
@@ -609,6 +754,16 @@ function showQuestionForm(questionId) {
   document.getElementById('qf_order').value = '1';
   document.getElementById('qf_page').value = '1';
   document.getElementById('qf_note').value = '';
+  const blockSelect = document.getElementById('qf_block_id');
+  if (blockSelect) {
+    const currentBlockId = currentQuestionBlockId();
+    blockSelect.value = currentBlockId || '';
+  }
+  const insertModeEl = document.getElementById('qf_insert_mode');
+  if (insertModeEl) insertModeEl.value = questionId ? '' : (currentQuestionBlockId() ? 'append' : '');
+  const insertQuestionEl = document.getElementById('qf_insert_question_id');
+  if (insertQuestionEl) insertQuestionEl.innerHTML = '<option value="">无需选择参考题目</option>';
+  refreshQuestionInsertOptions();
 
   if (questionId) {
     loadQuestionnaireItem(questionId);
@@ -635,6 +790,11 @@ async function loadQuestionnaireItem(questionId) {
     document.getElementById('qf_order').value = item.display_order || 1;
     document.getElementById('qf_page').value = item.page || Math.max(1, Math.ceil((item.display_order || 1) / 5));
     document.getElementById('qf_note').value = item.researcher_note || '';
+    const blockSelect = document.getElementById('qf_block_id');
+    if (blockSelect) blockSelect.value = currentQuestionBlockId() || '';
+    const insertModeEl = document.getElementById('qf_insert_mode');
+    if (insertModeEl) insertModeEl.value = '';
+    refreshQuestionInsertOptions();
 
     // Dimension
     if (item.dimension_code) {
@@ -662,6 +822,8 @@ async function adminSaveQuestion() {
   if (!id) { adminToast('question_id 不能为空'); return; }
 
   const options = collectOptions('qf_');
+  const insertConfig = collectQuestionInsertConfig();
+  if (insertConfig.error) { adminToast(insertConfig.error); return; }
 
   const data = {
     question_id: id,
@@ -684,6 +846,7 @@ async function adminSaveQuestion() {
     researcher_note: document.getElementById('qf_note').value.trim(),
     options: options
   };
+  Object.assign(data, insertConfig);
 
   try {
     if (editingQuestionId) {
@@ -747,6 +910,54 @@ async function adminCopyQuestion(id) {
     loadQuestionnaire();
   } catch (e) {
     adminToast('复制失败: ' + e.message);
+  }
+}
+
+async function adminAddExistingQuestionToCurrentBlock() {
+  const blockId = currentQuestionBlockId();
+  if (!blockId) { adminToast('请先在“当前问卷组”里选择前测/后测等具体问卷组'); return; }
+  const input = document.getElementById('existingQuestionIdInput');
+  const questionId = input ? input.value.trim() : '';
+  if (!questionId) { adminToast('请输入要加入的已有题号'); return; }
+  const modeEl = document.getElementById('existingQuestionInsertMode');
+  const refEl = document.getElementById('existingQuestionReferenceId');
+  const mode = modeEl ? (modeEl.value || 'append') : 'append';
+  const payload = {
+    block_id: blockId,
+    question_id: questionId,
+    insert_mode: mode,
+    page_size: 5
+  };
+  if (mode === 'before' || mode === 'after') {
+    const referenceId = refEl ? refEl.value : '';
+    if (!referenceId) { adminToast('请选择要插入到哪道题目前后'); return; }
+    payload.reference_question_id = referenceId;
+  }
+
+  try {
+    await apiPost('/admin/questionnaire-blocks/insert-question', payload);
+    if (input) input.value = '';
+    adminToast('题目已加入当前问卷组');
+    loadQuestionnaire();
+  } catch (e) {
+    adminToast('加入失败: ' + e.message);
+  }
+}
+
+async function adminRenumberCurrentQuestionBlock() {
+  const blockId = currentQuestionBlockId();
+  if (!blockId) { adminToast('请先选择具体问卷组，再执行当前组重排分页'); return; }
+  if (!confirm('确定要按当前问卷组顺序重新编号并分页吗？')) return;
+
+  try {
+    await apiPost('/admin/questionnaire-blocks/reorder', {
+      block_id: blockId,
+      page_size: 5
+    });
+    adminToast('当前问卷组已重新编号并分页');
+    loadQuestionnaire();
+  } catch (e) {
+    adminToast('重排失败: ' + e.message);
   }
 }
 
