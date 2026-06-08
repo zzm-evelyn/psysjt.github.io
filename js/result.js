@@ -55,6 +55,112 @@ function clampPercent(value, scaleMin, scaleMax) {
   return Math.max(0, Math.min(100, ((number - min) / (max - min)) * 100));
 }
 
+const PERSONALITY_DIMENSION_ORDER = ['外向性', '宜人性', '尽责性', '情绪稳定性', '开放性'];
+
+function getScoreDimension(score) {
+  return score.dimension || score.parent_dimension || '-';
+}
+
+function sortPersonalityScores(scores) {
+  return (scores || []).slice().sort(function (a, b) {
+    const aIndex = PERSONALITY_DIMENSION_ORDER.indexOf(getScoreDimension(a));
+    const bIndex = PERSONALITY_DIMENSION_ORDER.indexOf(getScoreDimension(b));
+    if (aIndex !== -1 || bIndex !== -1) {
+      return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+    }
+    return String(getScoreDimension(a)).localeCompare(String(getScoreDimension(b)), 'zh-CN');
+  });
+}
+
+function radarNumber(value, fallback) {
+  const number = Number(value);
+  return isFinite(number) ? number : fallback;
+}
+
+function radarPoint(index, total, value, scaleMin, scaleMax, center, radius) {
+  const min = Number(scaleMin || 1);
+  const max = Number(scaleMax || 5);
+  const bounded = Math.max(min, Math.min(max, radarNumber(value, min)));
+  const ratio = max > min ? (bounded - min) / (max - min) : 0;
+  const angle = (-Math.PI / 2) + (Math.PI * 2 * index / total);
+  const distance = ratio * radius;
+  return {
+    x: center + Math.cos(angle) * distance,
+    y: center + Math.sin(angle) * distance
+  };
+}
+
+function radarPointString(points) {
+  return points.map(function (point) {
+    return point.x.toFixed(1) + ',' + point.y.toFixed(1);
+  }).join(' ');
+}
+
+function buildPersonalityRadar(scores, scaleMin, scaleMax) {
+  const size = 520;
+  const center = size / 2;
+  const radius = 178;
+  const labelRadius = 222;
+  const levels = 4;
+  const total = scores.length;
+  const min = Number(scaleMin || 1);
+  const max = Number(scaleMax || 5);
+
+  let svg = [
+    '<div class="personality-radar-wrap">',
+      '<div class="personality-radar">',
+        '<svg viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="大五人格个人均分与常模均分雷达图">'
+  ].join('');
+
+  for (let level = levels; level >= 1; level--) {
+    const value = min + ((max - min) * level / levels);
+    const gridPoints = scores.map(function (_, index) {
+      return radarPoint(index, total, value, min, max, center, radius);
+    });
+    svg += '<polygon class="radar-grid" points="' + radarPointString(gridPoints) + '"></polygon>';
+  }
+
+  scores.forEach(function (_, index) {
+    const end = radarPoint(index, total, max, min, max, center, radius);
+    svg += '<line class="radar-axis" x1="' + center + '" y1="' + center + '" x2="' + end.x.toFixed(1) + '" y2="' + end.y.toFixed(1) + '"></line>';
+  });
+
+  for (let level = 1; level <= levels; level++) {
+    const value = min + ((max - min) * level / levels);
+    const y = center - ((value - min) / (max - min || 1)) * radius;
+    svg += '<text class="radar-scale-label" x="' + (center + 8) + '" y="' + y.toFixed(1) + '">' + formatMean(value) + '</text>';
+  }
+
+  scores.forEach(function (score, index) {
+    const labelPoint = radarPoint(index, total, max, min, max, center, labelRadius);
+    const anchor = Math.abs(labelPoint.x - center) < 8 ? 'middle' : (labelPoint.x > center ? 'start' : 'end');
+    svg += '<text class="radar-label" text-anchor="' + anchor + '" x="' + labelPoint.x.toFixed(1) + '" y="' + labelPoint.y.toFixed(1) + '">' + escHtml(getScoreDimension(score)) + '</text>';
+  });
+
+  const personalPoints = scores.map(function (score, index) {
+    return radarPoint(index, total, score.mean_score, min, max, center, radius);
+  });
+  const normPoints = scores.map(function (score, index) {
+    return radarPoint(index, total, score.norm_mean, min, max, center, radius);
+  });
+
+  svg += [
+        '<polygon class="radar-area personal" points="' + radarPointString(personalPoints) + '"></polygon>',
+        '<polygon class="radar-area norm" points="' + radarPointString(normPoints) + '"></polygon>',
+        '<polyline class="radar-line personal" points="' + radarPointString(personalPoints) + '"></polyline>',
+        '<polyline class="radar-line norm" points="' + radarPointString(normPoints) + '"></polyline>',
+      '</svg>',
+      '</div>',
+      '<div class="radar-legend" aria-label="雷达图图例">',
+        '<span><i class="legend-swatch personal"></i>个人均分</span>',
+        '<span><i class="legend-swatch norm"></i>常模均分</span>',
+      '</div>',
+    '</div>'
+  ].join('');
+
+  return svg;
+}
+
 function renderPersonalityReport(report) {
   removeLegacyResultActions();
 
@@ -68,7 +174,7 @@ function renderPersonalityReport(report) {
 
   const content = document.getElementById('resultContent');
   if (!content) return;
-  const scores = report.personality_dimension_scores || report.parent_dimension_scores || [];
+  const scores = sortPersonalityScores(report.personality_dimension_scores || report.parent_dimension_scores || []);
   const scaleMin = report.scale_min || 1;
   const scaleMax = report.scale_max || 5;
 
@@ -80,33 +186,29 @@ function renderPersonalityReport(report) {
   let html = [
     '<div class="result-section">',
       '<h2>大五人格维度</h2>',
-      '<p class="result-note">分数为个人均分，并与大学生常模均分进行比较。</p>',
-      '<div class="norm-comparison-list">'
+      '<p class="result-note">雷达图展示您的个人均分与常模均分。</p>',
+      buildPersonalityRadar(scores, scaleMin, scaleMax),
+      '<div class="radar-summary">',
+        '<h3>个人得分与常模对比</h3>',
+        '<table class="radar-score-table">',
+          '<thead><tr><th>维度</th><th>个人均分</th><th>常模均分</th><th>差值</th></tr></thead>',
+          '<tbody>'
   ].join('');
 
   scores.forEach(function (score) {
-    const personalWidth = clampPercent(score.mean_score, scaleMin, scaleMax);
-    const normWidth = clampPercent(score.norm_mean, scaleMin, scaleMax);
     html += [
-      '<div class="norm-comparison-row">',
-        '<div class="norm-comparison-head">',
-          '<strong>' + escHtml(score.dimension || score.parent_dimension || '-') + '</strong>',
-          '<span>' + escHtml(score.comparison_label || '') + '</span>',
-        '</div>',
-        '<div class="norm-score-grid">',
-          '<div>个人均分<br><b>' + formatMean(score.mean_score) + '</b></div>',
-          '<div>常模均分<br><b>' + formatMean(score.norm_mean) + '</b></div>',
-          '<div>差值<br><b>' + formatSigned(score.difference_from_norm) + '</b></div>',
-        '</div>',
-        '<div class="norm-bars" aria-hidden="true">',
-          '<div class="norm-bar personal"><span style="width:' + personalWidth.toFixed(1) + '%"></span></div>',
-          '<div class="norm-bar norm"><span style="width:' + normWidth.toFixed(1) + '%"></span></div>',
-        '</div>',
-      '</div>'
+      '<tr>',
+        '<td>' + escHtml(getScoreDimension(score)) + '</td>',
+        '<td>' + formatMean(score.mean_score) + '</td>',
+        '<td>' + formatMean(score.norm_mean) + '</td>',
+        '<td>' + formatSigned(score.difference_from_norm) + '</td>',
+      '</tr>'
     ].join('');
   });
 
   html += [
+          '</tbody>',
+        '</table>',
       '</div>',
     '</div>'
   ].join('');
