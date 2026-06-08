@@ -18,8 +18,6 @@ let cachedQuestionnaireSettings = {
   instruction_blocks: []
 };
 let editingInstructionBlockId = null;
-let draggedQuestionId = '';
-let questionOrderDirty = false;
 
 // ============================================================
 // 认证
@@ -329,14 +327,11 @@ async function adminDeactivateDim(code) {
 async function loadQuestionnaire() {
   const tbody = document.getElementById('questionnaireTableBody');
   try {
-    await loadQuestionnaireBlocksForQuestionTab();
     const items = await apiGet('/admin/questionnaire');
     cachedQuestionnaireItems = normalizeQuestionnairePages(items);
     const showDeletedEl = document.getElementById('showDeletedQuestions');
     const showDeleted = showDeletedEl ? showDeletedEl.checked : false;
-    const visibleItems = questionItemsForCurrentBlock(cachedQuestionnaireItems)
-      .filter(item => showDeleted || item.is_active !== false);
-    const canDragOrder = !!currentQuestionBlockId() && visibleItems.length > 1;
+    const visibleItems = cachedQuestionnaireItems.filter(item => showDeleted || item.is_active !== false);
     tbody.innerHTML = visibleItems.map(item => {
       const status = item.is_active !== false ? '<span class="status-badge completed">启用</span>' : '<span class="status-badge abandoned">停用</span>';
       const actions = item.is_active !== false
@@ -345,358 +340,9 @@ async function loadQuestionnaire() {
       return '<tr><td>' + esc(item.page || 1) + '</td><td>' + esc(item.display_order || '-') + '</td><td>' + esc(item.question_id) + '</td><td>' + esc(trunc(item.question_text, 40)) + '</td><td>' + esc(item.dimension_name || '-') + '</td><td>' + esc(item.question_type) + '</td><td>' + (item.required ? '✅' : '') + '</td><td>' + (item.reverse_scored ? '✅' : '') + '</td><td>' + status + '</td><td>' + actions + '</td></tr>';
     }).join('');
     if (visibleItems.length === 0) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">暂无数据</td></tr>';
-    ensureQuestionDragHeader();
-    normalizeQuestionTableColspan();
-    enhanceQuestionDragRows(visibleItems, canDragOrder);
-    setQuestionOrderDirty(false);
-    refreshQuestionInsertOptions();
-    refreshExistingQuestionInsertOptions();
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="10" style="color:#e74c3c;">加载失败: ' + e.message + '</td></tr>';
   }
-}
-
-async function loadQuestionnaireBlocksForQuestionTab() {
-  const blocks = await apiGet('/admin/questionnaire-blocks');
-  cachedQuestionnaireBlocks = normalizeQuestionnaireBlocks(blocks);
-  renderQuestionBlockFilterOptions();
-  renderQuestionFormBlockOptions();
-}
-
-function questionBlockLabel(block) {
-  return (block.title || block.block_id) + '（' + block.block_id + '）';
-}
-
-function renderQuestionBlockFilterOptions() {
-  const select = document.getElementById('questionBlockFilter');
-  if (!select) return;
-  const current = select.value || '__all__';
-  select.innerHTML = '<option value="__all__">全部题库</option>' +
-    (cachedQuestionnaireBlocks || []).filter(function (block) {
-      return block.is_active !== false;
-    }).map(function (block) {
-      return '<option value="' + esc(block.block_id) + '">' + esc(questionBlockLabel(block)) + '</option>';
-    }).join('');
-  select.value = Array.from(select.options).some(function (option) { return option.value === current; }) ? current : '__all__';
-}
-
-function renderQuestionFormBlockOptions() {
-  const select = document.getElementById('qf_block_id');
-  if (!select) return;
-  const current = select.value || '';
-  select.innerHTML = '<option value="">不加入特定问卷组</option>' +
-    (cachedQuestionnaireBlocks || []).filter(function (block) {
-      return block.is_active !== false;
-    }).map(function (block) {
-      return '<option value="' + esc(block.block_id) + '">' + esc(questionBlockLabel(block)) + '</option>';
-    }).join('');
-  if (Array.from(select.options).some(function (option) { return option.value === current; })) {
-    select.value = current;
-  }
-}
-
-function currentQuestionBlockId() {
-  const select = document.getElementById('questionBlockFilter');
-  const value = select ? select.value : '__all__';
-  return value && value !== '__all__' ? value : '';
-}
-
-function questionItemsForBlock(items, blockId) {
-  if (!blockId) return (items || []).slice();
-  const block = (cachedQuestionnaireBlocks || []).find(function (item) { return item.block_id === blockId; });
-  if (!block) return [];
-  const ids = block.question_ids || [];
-  if (!ids.length) return (items || []).slice();
-  const orderMap = {};
-  ids.forEach(function (id, idx) { orderMap[canonicalAdminQuestionId(id)] = idx; });
-  return (items || [])
-    .filter(function (item) { return orderMap[canonicalAdminQuestionId(item.question_id)] !== undefined; })
-    .sort(function (a, b) {
-      return orderMap[canonicalAdminQuestionId(a.question_id)] - orderMap[canonicalAdminQuestionId(b.question_id)];
-    });
-}
-
-function questionItemsForCurrentBlock(items) {
-  return questionItemsForBlock(items, currentQuestionBlockId());
-}
-
-function setAdminClass(element, className, enabled) {
-  if (!element) return;
-  if (element.classList) {
-    element.classList.toggle(className, !!enabled);
-    return;
-  }
-  const classes = String(element.className || '').split(/\s+/).filter(Boolean);
-  const hasClass = classes.indexOf(className) !== -1;
-  if (enabled && !hasClass) classes.push(className);
-  if (!enabled && hasClass) classes.splice(classes.indexOf(className), 1);
-  element.className = classes.join(' ');
-}
-
-function setQuestionOrderDirty(isDirty) {
-  questionOrderDirty = !!isDirty;
-  const button = document.getElementById('saveQuestionOrderBtn');
-  if (!button) return;
-  const hasBlock = !!currentQuestionBlockId();
-  button.disabled = !hasBlock || !questionOrderDirty;
-  button.title = hasBlock ? '拖动题目后点击保存当前顺序' : '请先选择具体问卷组';
-}
-
-function ensureQuestionDragHeader() {
-  const tbody = document.getElementById('questionnaireTableBody');
-  const table = tbody ? tbody.closest('table') : null;
-  const headerRow = table ? table.querySelector('thead tr') : null;
-  if (!headerRow || headerRow.dataset.dragHeaderReady === '1') return;
-  const th = document.createElement('th');
-  th.textContent = '排序';
-  if (headerRow.firstChild) {
-    headerRow.insertBefore(th, headerRow.firstChild);
-  } else {
-    headerRow.appendChild(th);
-  }
-  headerRow.dataset.dragHeaderReady = '1';
-}
-
-function normalizeQuestionTableColspan() {
-  const tbody = document.getElementById('questionnaireTableBody');
-  if (!tbody) return;
-  Array.prototype.slice.call(tbody.querySelectorAll('td[colspan="10"]')).forEach(function (cell) {
-    cell.setAttribute('colspan', '11');
-  });
-}
-
-function enhanceQuestionDragRows(visibleItems, canDragOrder) {
-  const tbody = document.getElementById('questionnaireTableBody');
-  if (!tbody || !visibleItems || !visibleItems.length) return;
-  const rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
-  rows.forEach(function (row, idx) {
-    const item = visibleItems[idx];
-    if (!item || !item.question_id) return;
-    row.dataset.questionId = item.question_id;
-    row.setAttribute('data-question-id', item.question_id);
-    if (canDragOrder) {
-      setAdminClass(row, 'question-order-row', true);
-      row.addEventListener('dragover', handleQuestionDragOver);
-      row.addEventListener('dragleave', handleQuestionDragLeave);
-      row.addEventListener('drop', handleQuestionDrop);
-    }
-
-    const cell = document.createElement('td');
-    cell.className = 'question-drag-cell';
-    cell.innerHTML = canDragOrder
-      ? '<button type="button" class="question-drag-handle" draggable="true" data-question-id="' + esc(item.question_id) + '" title="拖动调整位置" aria-label="拖动调整题目位置">≡</button>'
-      : '<button type="button" class="question-drag-handle" disabled title="选择具体问卷组后可拖拽">≡</button>';
-    if (row.firstChild) {
-      row.insertBefore(cell, row.firstChild);
-    } else {
-      row.appendChild(cell);
-    }
-    const handle = cell.querySelector('.question-drag-handle');
-    if (handle && canDragOrder) {
-      handle.addEventListener('dragstart', handleQuestionDragStart);
-      handle.addEventListener('dragend', handleQuestionDragEnd);
-    }
-  });
-}
-
-function findQuestionOrderRow(node) {
-  let current = node;
-  while (current && String(current.tagName || '').toLowerCase() !== 'tr') {
-    current = current.parentElement;
-  }
-  return current;
-}
-
-function currentQuestionOrderRows() {
-  const tbody = document.getElementById('questionnaireTableBody');
-  if (!tbody) return [];
-  return Array.prototype.slice.call(tbody.querySelectorAll('tr[data-question-id]'));
-}
-
-function clearQuestionDragClasses() {
-  currentQuestionOrderRows().forEach(function (row) {
-    setAdminClass(row, 'dragging', false);
-    setAdminClass(row, 'drag-over', false);
-  });
-}
-
-function handleQuestionDragStart(event) {
-  const row = findQuestionOrderRow(event.currentTarget || event.target);
-  const questionId = row ? row.dataset.questionId : '';
-  if (!currentQuestionBlockId() || !questionId) {
-    if (event.preventDefault) event.preventDefault();
-    return;
-  }
-  draggedQuestionId = questionId;
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', questionId);
-  }
-  setAdminClass(row, 'dragging', true);
-}
-
-function handleQuestionDragOver(event) {
-  if (!draggedQuestionId) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-  const row = findQuestionOrderRow(event.currentTarget || event.target);
-  if (row && row.dataset.questionId !== draggedQuestionId) {
-    setAdminClass(row, 'drag-over', true);
-  }
-}
-
-function handleQuestionDragLeave(event) {
-  const row = findQuestionOrderRow(event.currentTarget || event.target);
-  setAdminClass(row, 'drag-over', false);
-}
-
-function handleQuestionDrop(event) {
-  event.preventDefault();
-  const tbody = document.getElementById('questionnaireTableBody');
-  const targetRow = findQuestionOrderRow(event.currentTarget || event.target);
-  const sourceId = event.dataTransfer ? (event.dataTransfer.getData('text/plain') || draggedQuestionId) : draggedQuestionId;
-  if (!tbody || !targetRow || !sourceId || targetRow.dataset.questionId === sourceId) {
-    clearQuestionDragClasses();
-    return;
-  }
-
-  const rows = currentQuestionOrderRows();
-  const sourceRow = rows.find(function (row) { return row.dataset.questionId === sourceId; });
-  if (!sourceRow) {
-    clearQuestionDragClasses();
-    return;
-  }
-
-  const sourceIndex = rows.indexOf(sourceRow);
-  const targetIndex = rows.indexOf(targetRow);
-  if (sourceIndex < targetIndex) {
-    tbody.insertBefore(sourceRow, targetRow.nextSibling);
-  } else {
-    tbody.insertBefore(sourceRow, targetRow);
-  }
-  refreshQuestionOrderNumbersFromDom();
-  setQuestionOrderDirty(true);
-  clearQuestionDragClasses();
-}
-
-function handleQuestionDragEnd() {
-  draggedQuestionId = '';
-  clearQuestionDragClasses();
-}
-
-function refreshQuestionOrderNumbersFromDom() {
-  currentQuestionOrderRows().forEach(function (row, idx) {
-    const pageCell = row.children && row.children[1];
-    const orderCell = row.children && row.children[2];
-    if (pageCell) pageCell.textContent = String(Math.max(1, Math.ceil((idx + 1) / 5)));
-    if (orderCell) orderCell.textContent = String(idx + 1);
-  });
-}
-
-function collectCurrentQuestionOrder() {
-  return currentQuestionOrderRows()
-    .map(function (row) { return row.dataset.questionId || row.getAttribute('data-question-id') || ''; })
-    .filter(Boolean);
-}
-
-async function adminSaveCurrentQuestionOrder() {
-  const blockId = currentQuestionBlockId();
-  if (!blockId) { adminToast('请先选择具体问卷组，再保存拖拽顺序'); return; }
-  const questionIds = collectCurrentQuestionOrder();
-  if (!questionIds.length) { adminToast('当前问卷组没有可保存的题目'); return; }
-  const button = document.getElementById('saveQuestionOrderBtn');
-  if (button) button.disabled = true;
-
-  try {
-    await apiPost('/admin/questionnaire-blocks/reorder', {
-      block_id: blockId,
-      question_ids: questionIds,
-      page_size: 5
-    });
-    adminToast('当前题目顺序已保存');
-    questionOrderDirty = false;
-    loadQuestionnaire();
-  } catch (e) {
-    setQuestionOrderDirty(true);
-    adminToast('保存顺序失败: ' + e.message);
-  }
-}
-
-function canonicalAdminQuestionId(id) {
-  const m = String(id || '').trim().toLowerCase().match(/(\d+)$/);
-  if (m) return 'q_' + String(parseInt(m[1], 10)).padStart(3, '0');
-  return String(id || '').trim().toLowerCase();
-}
-
-function questionOptionLabel(item) {
-  return (item.display_order || '-') + '. ' + (item.question_id || '-') + ' ' + trunc(item.question_text || '', 30);
-}
-
-function refreshQuestionInsertOptions() {
-  const blockEl = document.getElementById('qf_block_id');
-  const modeEl = document.getElementById('qf_insert_mode');
-  const refEl = document.getElementById('qf_insert_question_id');
-  if (!blockEl || !modeEl || !refEl) return;
-
-  const blockId = blockEl.value || '';
-  const mode = modeEl.value || '';
-  const needsReference = mode === 'before' || mode === 'after';
-  const currentId = document.getElementById('qf_id') ? document.getElementById('qf_id').value.trim() : '';
-  const options = questionItemsForBlock(cachedQuestionnaireItems || [], blockId)
-    .filter(function (item) {
-      return item.question_id !== currentId && item.is_active !== false;
-    });
-
-  refEl.disabled = !needsReference || !blockId;
-  refEl.innerHTML = needsReference && blockId
-    ? options.map(function (item) {
-        return '<option value="' + esc(item.question_id || '') + '">' + esc(questionOptionLabel(item)) + '</option>';
-      }).join('')
-    : '<option value="">无需选择参考题目</option>';
-  if (needsReference && blockId && !options.length) {
-    refEl.innerHTML = '<option value="">当前组暂无可参考题目</option>';
-  }
-}
-
-function refreshExistingQuestionInsertOptions() {
-  const modeEl = document.getElementById('existingQuestionInsertMode');
-  const refEl = document.getElementById('existingQuestionReferenceId');
-  if (!modeEl || !refEl) return;
-  const blockId = currentQuestionBlockId();
-  const mode = modeEl.value || 'append';
-  const needsReference = mode === 'before' || mode === 'after';
-  const options = questionItemsForBlock(cachedQuestionnaireItems || [], blockId)
-    .filter(function (item) { return item.is_active !== false; });
-  refEl.disabled = !needsReference || !blockId;
-  refEl.innerHTML = needsReference && blockId
-    ? options.map(function (item) {
-        return '<option value="' + esc(item.question_id || '') + '">' + esc(questionOptionLabel(item)) + '</option>';
-      }).join('')
-    : '<option value="">无需参考题目</option>';
-  if (needsReference && blockId && !options.length) {
-    refEl.innerHTML = '<option value="">当前组暂无可参考题目</option>';
-  }
-}
-
-function collectQuestionInsertConfig() {
-  const blockEl = document.getElementById('qf_block_id');
-  const modeEl = document.getElementById('qf_insert_mode');
-  const refEl = document.getElementById('qf_insert_question_id');
-  if (!blockEl || !modeEl) return {};
-  const blockId = blockEl.value || '';
-  if (!blockId) return {};
-
-  let mode = modeEl.value || '';
-  if (!editingQuestionId && !mode) mode = 'append';
-  if (!mode) return { block_id: blockId };
-
-  const config = { block_id: blockId, insert_mode: mode };
-  if (mode === 'before' || mode === 'after') {
-    const referenceId = refEl ? refEl.value : '';
-    if (!referenceId) return { error: '请选择要插入到哪道题目前后' };
-    config.reference_question_id = referenceId;
-  }
-  return config;
 }
 
 async function loadQuestionnaireSettings() {
@@ -963,16 +609,6 @@ function showQuestionForm(questionId) {
   document.getElementById('qf_order').value = '1';
   document.getElementById('qf_page').value = '1';
   document.getElementById('qf_note').value = '';
-  const blockSelect = document.getElementById('qf_block_id');
-  if (blockSelect) {
-    const currentBlockId = currentQuestionBlockId();
-    blockSelect.value = currentBlockId || '';
-  }
-  const insertModeEl = document.getElementById('qf_insert_mode');
-  if (insertModeEl) insertModeEl.value = questionId ? '' : (currentQuestionBlockId() ? 'append' : '');
-  const insertQuestionEl = document.getElementById('qf_insert_question_id');
-  if (insertQuestionEl) insertQuestionEl.innerHTML = '<option value="">无需选择参考题目</option>';
-  refreshQuestionInsertOptions();
 
   if (questionId) {
     loadQuestionnaireItem(questionId);
@@ -999,11 +635,6 @@ async function loadQuestionnaireItem(questionId) {
     document.getElementById('qf_order').value = item.display_order || 1;
     document.getElementById('qf_page').value = item.page || Math.max(1, Math.ceil((item.display_order || 1) / 5));
     document.getElementById('qf_note').value = item.researcher_note || '';
-    const blockSelect = document.getElementById('qf_block_id');
-    if (blockSelect) blockSelect.value = currentQuestionBlockId() || '';
-    const insertModeEl = document.getElementById('qf_insert_mode');
-    if (insertModeEl) insertModeEl.value = '';
-    refreshQuestionInsertOptions();
 
     // Dimension
     if (item.dimension_code) {
@@ -1031,8 +662,6 @@ async function adminSaveQuestion() {
   if (!id) { adminToast('question_id 不能为空'); return; }
 
   const options = collectOptions('qf_');
-  const insertConfig = collectQuestionInsertConfig();
-  if (insertConfig.error) { adminToast(insertConfig.error); return; }
 
   const data = {
     question_id: id,
@@ -1055,7 +684,6 @@ async function adminSaveQuestion() {
     researcher_note: document.getElementById('qf_note').value.trim(),
     options: options
   };
-  Object.assign(data, insertConfig);
 
   try {
     if (editingQuestionId) {
@@ -1119,54 +747,6 @@ async function adminCopyQuestion(id) {
     loadQuestionnaire();
   } catch (e) {
     adminToast('复制失败: ' + e.message);
-  }
-}
-
-async function adminAddExistingQuestionToCurrentBlock() {
-  const blockId = currentQuestionBlockId();
-  if (!blockId) { adminToast('请先在“当前问卷组”里选择前测/后测等具体问卷组'); return; }
-  const input = document.getElementById('existingQuestionIdInput');
-  const questionId = input ? input.value.trim() : '';
-  if (!questionId) { adminToast('请输入要加入的已有题号'); return; }
-  const modeEl = document.getElementById('existingQuestionInsertMode');
-  const refEl = document.getElementById('existingQuestionReferenceId');
-  const mode = modeEl ? (modeEl.value || 'append') : 'append';
-  const payload = {
-    block_id: blockId,
-    question_id: questionId,
-    insert_mode: mode,
-    page_size: 5
-  };
-  if (mode === 'before' || mode === 'after') {
-    const referenceId = refEl ? refEl.value : '';
-    if (!referenceId) { adminToast('请选择要插入到哪道题目前后'); return; }
-    payload.reference_question_id = referenceId;
-  }
-
-  try {
-    await apiPost('/admin/questionnaire-blocks/insert-question', payload);
-    if (input) input.value = '';
-    adminToast('题目已加入当前问卷组');
-    loadQuestionnaire();
-  } catch (e) {
-    adminToast('加入失败: ' + e.message);
-  }
-}
-
-async function adminRenumberCurrentQuestionBlock() {
-  const blockId = currentQuestionBlockId();
-  if (!blockId) { adminToast('请先选择具体问卷组，再执行当前组重排分页'); return; }
-  if (!confirm('确定要按当前问卷组顺序重新编号并分页吗？')) return;
-
-  try {
-    await apiPost('/admin/questionnaire-blocks/reorder', {
-      block_id: blockId,
-      page_size: 5
-    });
-    adminToast('当前问卷组已重新编号并分页');
-    loadQuestionnaire();
-  } catch (e) {
-    adminToast('重排失败: ' + e.message);
   }
 }
 
