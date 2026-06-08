@@ -419,13 +419,49 @@ function showGameComplete() {
       if (p) p.textContent = '您已完成本次剧情体验，请点击下方按钮进行下一体验。';
       if (button) button.textContent = '进行下一体验';
     } else {
-      if (h2) h2.textContent = '全部体验结束';
-      if (p) p.textContent = '您已完成全部剧情体验，请点击下方按钮查看人格报告。';
-      if (button) button.textContent = '查看人格报告';
+      const nextStep = nextFlowStepAfterCurrentGame();
+      if (h2) h2.textContent = '全部剧情体验结束';
+      if (nextStep && nextStep.type === 'questionnaire') {
+        if (p) p.textContent = '您已完成全部剧情体验，请点击下方按钮继续完成后测问卷。';
+        if (button) button.textContent = '继续后测问卷';
+      } else {
+        if (p) p.textContent = '您已完成全部剧情体验，请点击下方按钮继续。';
+        if (button) button.textContent = '继续';
+      }
     }
     completeArea.style.display = 'block';
     completeArea.style.animation = 'cardEntrance 0.5s ease-out';
   }
+}
+
+function nextFlowStepAfterCurrentGame() {
+  const plan = _getItem(STORAGE_KEYS.FLOW_PLAN) || [];
+  if (!Array.isArray(plan) || !plan.length || !currentGame) return null;
+
+  const completed = _getItem(STORAGE_KEYS.FLOW_COMPLETED_STEP_IDS) || [];
+  const currentStepId = currentFlowStep && currentFlowStep.step_id ? currentFlowStep.step_id : '';
+  const currentKey = normalizeGameKey(currentGame.key);
+  let currentIndex = -1;
+
+  if (currentStepId) {
+    currentIndex = plan.findIndex(function (step) {
+      return step && step.step_id === currentStepId;
+    });
+  }
+  if (currentIndex === -1) {
+    currentIndex = plan.findIndex(function (step) {
+      return step && step.type === 'game' &&
+        normalizeGameKey(step.game_key) === currentKey &&
+        completed.indexOf(step.step_id) === -1;
+    });
+  }
+  if (currentIndex === -1) return null;
+
+  for (let i = currentIndex + 1; i < plan.length; i++) {
+    const step = plan[i];
+    if (step && completed.indexOf(step.step_id) === -1) return step;
+  }
+  return null;
 }
 
 async function finishGame() {
