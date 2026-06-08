@@ -663,6 +663,21 @@
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
             <h2>问卷题目管理</h2>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <select id="questionBlockFilter" class="admin-select" style="width:auto;" onchange="loadQuestionnaire()">
+                <option value="__all__">全部题库</option>
+              </select>
+              <input id="existingQuestionIdInput" class="admin-input admin-input-sm" placeholder="已有题号">
+              <select id="existingQuestionInsertMode" class="admin-select" style="width:auto;" onchange="refreshExistingQuestionInsertOptions()">
+                <option value="append">加到末尾</option>
+                <option value="prepend">加到开头</option>
+                <option value="after">插入到某题之后</option>
+                <option value="before">插入到某题之前</option>
+              </select>
+              <select id="existingQuestionReferenceId" class="admin-select" style="width:auto;" disabled>
+                <option value="">无需参考题目</option>
+              </select>
+              <button class="admin-btn sm" onclick="adminAddExistingQuestionToCurrentBlock()">加入当前组</button>
+              <button class="admin-btn sm" onclick="adminRenumberCurrentQuestionBlock()">当前组重排分页</button>
               <label class="admin-checkbox-label"><input id="showDeletedQuestions" type="checkbox" onchange="loadQuestionnaire()"> 显示已删除</label>
               <button class="admin-btn primary sm" onclick="showQuestionForm(null)">+ 新增题目</button>
             </div>
@@ -723,6 +738,24 @@
             <div style="flex:1;">
               <label>page（页码）</label>
               <input id="qf_page" class="admin-input admin-input-sm" value="1" min="1" type="number">
+            </div>
+          </div>
+          <div class="admin-form-row">
+            <label>保存到问卷组与插入位置</label>
+            <div style="display:grid;grid-template-columns:minmax(150px,1fr) minmax(160px,220px) 1fr;gap:8px;">
+              <select id="qf_block_id" class="admin-select" onchange="refreshQuestionInsertOptions()">
+                <option value="">不加入特定问卷组</option>
+              </select>
+              <select id="qf_insert_mode" class="admin-select" onchange="refreshQuestionInsertOptions()">
+                <option value="">保持当前顺序</option>
+                <option value="append">添加到当前组末尾</option>
+                <option value="prepend">添加到当前组开头</option>
+                <option value="after">插入到某题之后</option>
+                <option value="before">插入到某题之前</option>
+              </select>
+              <select id="qf_insert_question_id" class="admin-select" disabled>
+                <option value="">无需选择参考题目</option>
+              </select>
             </div>
           </div>
           <!-- Dimension -->
