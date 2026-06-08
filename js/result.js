@@ -109,7 +109,7 @@ function buildPersonalityRadar(scores, scaleMin, scaleMax) {
   let svg = [
     '<div class="personality-radar-wrap">',
       '<div class="personality-radar">',
-        '<svg viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="大五人格个人均分与常模均分雷达图">'
+        '<svg viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="大五人格个人均分、常模均分与常模平均分加一个标准差雷达图">'
   ].join('');
 
   for (let level = levels; level >= 1; level--) {
@@ -143,17 +143,22 @@ function buildPersonalityRadar(scores, scaleMin, scaleMax) {
   const normPoints = scores.map(function (score, index) {
     return radarPoint(index, total, score.norm_mean, min, max, center, radius);
   });
+  const normPlusSdPoints = scores.map(function (score, index) {
+    return radarPoint(index, total, radarNumber(score.norm_mean, min) + Math.max(0, radarNumber(score.norm_sd, 0)), min, max, center, radius);
+  });
 
   svg += [
         '<polygon class="radar-area personal" points="' + radarPointString(personalPoints) + '"></polygon>',
         '<polygon class="radar-area norm" points="' + radarPointString(normPoints) + '"></polygon>',
-        '<polyline class="radar-line personal" points="' + radarPointString(personalPoints) + '"></polyline>',
-        '<polyline class="radar-line norm" points="' + radarPointString(normPoints) + '"></polyline>',
+        '<polygon class="radar-line norm-plus-sd" points="' + radarPointString(normPlusSdPoints) + '"></polygon>',
+        '<polygon class="radar-line personal" points="' + radarPointString(personalPoints) + '"></polygon>',
+        '<polygon class="radar-line norm" points="' + radarPointString(normPoints) + '"></polygon>',
       '</svg>',
       '</div>',
       '<div class="radar-legend" aria-label="雷达图图例">',
         '<span><i class="legend-swatch personal"></i>个人均分</span>',
         '<span><i class="legend-swatch norm"></i>常模均分</span>',
+        '<span><i class="legend-swatch norm-plus-sd"></i>常模平均分+1个标准差</span>',
       '</div>',
     '</div>'
   ].join('');
@@ -186,7 +191,7 @@ function renderPersonalityReport(report) {
   let html = [
     '<div class="result-section">',
       '<h2>大五人格维度</h2>',
-      '<p class="result-note">雷达图展示您的个人均分与常模均分。</p>',
+      '<p class="result-note">雷达图展示您的个人均分、常模均分，以及常模平均分+1个标准差。</p>',
       buildPersonalityRadar(scores, scaleMin, scaleMax),
       '<div class="radar-summary">',
         '<h3>个人得分与常模对比</h3>',
