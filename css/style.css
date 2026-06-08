@@ -789,11 +789,6 @@ body::before {
   background: var(--accent);
 }
 
-.norm-meta {
-  color: var(--text-muted);
-  font-size: 0.78rem;
-}
-
 .dim-desc {
   font-size: 0.8rem;
   color: var(--text-muted);
