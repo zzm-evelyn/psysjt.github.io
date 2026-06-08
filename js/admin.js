@@ -803,6 +803,7 @@ async function loadScenes() {
       return '<tr><td>' + esc(s.scene_id) + '</td><td>' + esc(gameLabel || '-') + '</td><td>' + esc(s.scene_title || '-') + '</td><td>' + (s.scene_order || '-') + '</td><td>' + esc(s.dimension_name || '-') + '</td><td>' + (s.reverse_scored ? '✅' : '') + '</td><td>' + (s.options ? s.options.length : 0) + '</td><td>' + status + '</td><td><button class="admin-btn sm" onclick="showSceneForm(\'' + esc(s.scene_id) + '\')">编辑</button> <button class="admin-btn sm" onclick="adminCopyScene(\'' + esc(s.scene_id) + '\')">复制</button> <button class="admin-btn sm danger" onclick="adminDeactivateScene(\'' + esc(s.scene_id) + '\')">停用</button></td></tr>';
     }).join('');
     if (scenes.length === 0) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;">暂无数据</td></tr>';
+    refreshSceneInsertOptions();
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="9" style="color:#e74c3c;">加载失败: ' + e.message + '</td></tr>';
   }
@@ -841,7 +842,10 @@ function ensureSceneGameKeyInput() {
   input.className = 'admin-input';
   input.placeholder = 'game_a / game_b / game_c';
   input.value = keyEl.value || 'game_a';
-  input.onchange = syncSceneGameTitle;
+  input.onchange = function () {
+    syncSceneGameTitle();
+    refreshSceneInsertOptions();
+  };
   keyEl.parentNode.replaceChild(input, keyEl);
 }
 
@@ -852,6 +856,68 @@ function nextSceneId(scenes) {
     if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
   });
   return 'scene_' + String(maxNum + 1).padStart(3, '0');
+}
+
+function sceneOrderValue(scene) {
+  return parseInt(scene.scene_order || scene.display_order, 10) || 999999;
+}
+
+function sceneInsertOptionLabel(scene) {
+  return (scene.scene_order || scene.display_order || '-') + '. ' +
+    (scene.scene_title || scene.scene_id || '-') +
+    '（' + (scene.scene_id || '-') + '）';
+}
+
+function refreshSceneInsertOptions() {
+  const modeEl = document.getElementById('sf_insert_mode');
+  const refEl = document.getElementById('sf_insert_scene_id');
+  const keyEl = document.getElementById('sf_game_key');
+  if (!modeEl || !refEl || !keyEl) return;
+
+  const mode = modeEl.value || '';
+  const needsReference = mode === 'before' || mode === 'after';
+  const gameKey = normalizeAdminGameKey(keyEl.value || 'game_a');
+  const currentId = document.getElementById('sf_id') ? document.getElementById('sf_id').value.trim() : '';
+  const options = (cachedScenes || [])
+    .filter(function (scene) {
+      return normalizeAdminGameKey(scene.game_key || 'game_a') === gameKey &&
+        scene.scene_id !== currentId &&
+        scene.is_active !== false;
+    })
+    .sort(function (a, b) {
+      return sceneOrderValue(a) - sceneOrderValue(b);
+    });
+
+  refEl.disabled = !needsReference;
+  refEl.innerHTML = needsReference
+    ? options.map(function (scene) {
+        return '<option value="' + esc(scene.scene_id || '') + '">' + esc(sceneInsertOptionLabel(scene)) + '</option>';
+      }).join('')
+    : '<option value="">无需选择参考情景</option>';
+
+  if (needsReference && !options.length) {
+    refEl.innerHTML = '<option value="">当前游戏暂无可参考情景</option>';
+  }
+}
+
+function collectSceneInsertConfig() {
+  const modeEl = document.getElementById('sf_insert_mode');
+  const refEl = document.getElementById('sf_insert_scene_id');
+  if (!modeEl) return {};
+
+  let mode = modeEl.value || '';
+  if (!editingSceneId && !mode) mode = 'append';
+  if (!mode) return {};
+
+  const config = { insert_mode: mode };
+  if (mode === 'before' || mode === 'after') {
+    const referenceId = refEl ? refEl.value : '';
+    if (!referenceId) {
+      return { error: '请选择要插入到哪个情景前后' };
+    }
+    config.insert_scene_id = referenceId;
+  }
+  return config;
 }
 
 // ——— Scene Form ———
@@ -881,6 +947,11 @@ function showSceneForm(sceneId) {
   document.getElementById('sf_display_order').value = '1';
   document.getElementById('sf_note').value = '';
   document.getElementById('sf_dim_code').value = '';
+  const insertModeEl = document.getElementById('sf_insert_mode');
+  if (insertModeEl) insertModeEl.value = sceneId ? '' : 'append';
+  const insertSceneEl = document.getElementById('sf_insert_scene_id');
+  if (insertSceneEl) insertSceneEl.innerHTML = '<option value="">无需选择参考情景</option>';
+  refreshSceneInsertOptions();
 
   if (sceneId) {
     loadSceneItem(sceneId);
@@ -905,6 +976,9 @@ async function loadSceneItem(sceneId) {
     document.getElementById('sf_bg').value = scene.background_image_url || '';
     document.getElementById('sf_display_order').value = scene.display_order || 1;
     document.getElementById('sf_note').value = scene.researcher_note || '';
+    const insertModeEl = document.getElementById('sf_insert_mode');
+    if (insertModeEl) insertModeEl.value = '';
+    refreshSceneInsertOptions();
 
     if (scene.dimension_code) {
       document.getElementById('sf_dim_code').value = scene.dimension_code;
@@ -930,6 +1004,8 @@ async function adminSaveScene() {
   if (!id) { adminToast('scene_id 不能为空'); return; }
 
   const options = collectOptions('sf_');
+  const insertConfig = collectSceneInsertConfig();
+  if (insertConfig.error) { adminToast(insertConfig.error); return; }
 
   const data = {
     scene_id: id,
@@ -952,6 +1028,7 @@ async function adminSaveScene() {
     researcher_note: document.getElementById('sf_note').value.trim(),
     options: options
   };
+  Object.assign(data, insertConfig);
 
   try {
     if (editingSceneId) {
@@ -979,6 +1056,17 @@ async function adminDeactivateScene(id) {
   }
 }
 
+async function adminRenumberScenes() {
+  if (!confirm('确定要按当前所属游戏内的顺序一键重新编号吗？')) return;
+  try {
+    await apiPost('/admin/game-scenes/reorder', {});
+    adminToast('情景顺序已重新编号');
+    loadScenes();
+  } catch (e) {
+    adminToast('重新编号失败: ' + e.message);
+  }
+}
+
 async function adminCopyScene(id) {
   try {
     const scenes = cachedScenes.length ? cachedScenes : await apiGet('/admin/game-scenes');
@@ -986,12 +1074,13 @@ async function adminCopyScene(id) {
     if (!source) { adminToast('未找到要复制的情景'); return; }
 
     const newId = nextSceneId(scenes);
-    const maxOrder = scenes.reduce((max, scene) => Math.max(max, parseInt(scene.display_order || scene.scene_order, 10) || 0), 0);
     const copy = JSON.parse(JSON.stringify(source));
     copy.scene_id = newId;
     copy.scene_title = (copy.scene_title || '') + '（副本）';
-    copy.scene_order = maxOrder + 1;
-    copy.display_order = maxOrder + 1;
+    copy.scene_order = (parseInt(source.scene_order || source.display_order, 10) || 0) + 1;
+    copy.display_order = copy.scene_order;
+    copy.insert_mode = 'after';
+    copy.insert_scene_id = id;
     copy.is_active = true;
 
     await apiPost('/admin/game-scenes', copy);
