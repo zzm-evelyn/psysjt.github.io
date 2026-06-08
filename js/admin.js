@@ -18,6 +18,8 @@ let cachedQuestionnaireSettings = {
   instruction_blocks: []
 };
 let editingInstructionBlockId = null;
+let draggedQuestionId = '';
+let questionOrderDirty = false;
 
 // ============================================================
 // 认证
@@ -334,6 +336,7 @@ async function loadQuestionnaire() {
     const showDeleted = showDeletedEl ? showDeletedEl.checked : false;
     const visibleItems = questionItemsForCurrentBlock(cachedQuestionnaireItems)
       .filter(item => showDeleted || item.is_active !== false);
+    const canDragOrder = !!currentQuestionBlockId() && visibleItems.length > 1;
     tbody.innerHTML = visibleItems.map(item => {
       const status = item.is_active !== false ? '<span class="status-badge completed">启用</span>' : '<span class="status-badge abandoned">停用</span>';
       const actions = item.is_active !== false
@@ -342,6 +345,10 @@ async function loadQuestionnaire() {
       return '<tr><td>' + esc(item.page || 1) + '</td><td>' + esc(item.display_order || '-') + '</td><td>' + esc(item.question_id) + '</td><td>' + esc(trunc(item.question_text, 40)) + '</td><td>' + esc(item.dimension_name || '-') + '</td><td>' + esc(item.question_type) + '</td><td>' + (item.required ? '✅' : '') + '</td><td>' + (item.reverse_scored ? '✅' : '') + '</td><td>' + status + '</td><td>' + actions + '</td></tr>';
     }).join('');
     if (visibleItems.length === 0) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">暂无数据</td></tr>';
+    ensureQuestionDragHeader();
+    normalizeQuestionTableColspan();
+    enhanceQuestionDragRows(visibleItems, canDragOrder);
+    setQuestionOrderDirty(false);
     refreshQuestionInsertOptions();
     refreshExistingQuestionInsertOptions();
   } catch (e) {
@@ -411,6 +418,208 @@ function questionItemsForBlock(items, blockId) {
 
 function questionItemsForCurrentBlock(items) {
   return questionItemsForBlock(items, currentQuestionBlockId());
+}
+
+function setAdminClass(element, className, enabled) {
+  if (!element) return;
+  if (element.classList) {
+    element.classList.toggle(className, !!enabled);
+    return;
+  }
+  const classes = String(element.className || '').split(/\s+/).filter(Boolean);
+  const hasClass = classes.indexOf(className) !== -1;
+  if (enabled && !hasClass) classes.push(className);
+  if (!enabled && hasClass) classes.splice(classes.indexOf(className), 1);
+  element.className = classes.join(' ');
+}
+
+function setQuestionOrderDirty(isDirty) {
+  questionOrderDirty = !!isDirty;
+  const button = document.getElementById('saveQuestionOrderBtn');
+  if (!button) return;
+  const hasBlock = !!currentQuestionBlockId();
+  button.disabled = !hasBlock || !questionOrderDirty;
+  button.title = hasBlock ? '拖动题目后点击保存当前顺序' : '请先选择具体问卷组';
+}
+
+function ensureQuestionDragHeader() {
+  const tbody = document.getElementById('questionnaireTableBody');
+  const table = tbody ? tbody.closest('table') : null;
+  const headerRow = table ? table.querySelector('thead tr') : null;
+  if (!headerRow || headerRow.dataset.dragHeaderReady === '1') return;
+  const th = document.createElement('th');
+  th.textContent = '排序';
+  if (headerRow.firstChild) {
+    headerRow.insertBefore(th, headerRow.firstChild);
+  } else {
+    headerRow.appendChild(th);
+  }
+  headerRow.dataset.dragHeaderReady = '1';
+}
+
+function normalizeQuestionTableColspan() {
+  const tbody = document.getElementById('questionnaireTableBody');
+  if (!tbody) return;
+  Array.prototype.slice.call(tbody.querySelectorAll('td[colspan="10"]')).forEach(function (cell) {
+    cell.setAttribute('colspan', '11');
+  });
+}
+
+function enhanceQuestionDragRows(visibleItems, canDragOrder) {
+  const tbody = document.getElementById('questionnaireTableBody');
+  if (!tbody || !visibleItems || !visibleItems.length) return;
+  const rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+  rows.forEach(function (row, idx) {
+    const item = visibleItems[idx];
+    if (!item || !item.question_id) return;
+    row.dataset.questionId = item.question_id;
+    row.setAttribute('data-question-id', item.question_id);
+    if (canDragOrder) {
+      setAdminClass(row, 'question-order-row', true);
+      row.addEventListener('dragover', handleQuestionDragOver);
+      row.addEventListener('dragleave', handleQuestionDragLeave);
+      row.addEventListener('drop', handleQuestionDrop);
+    }
+
+    const cell = document.createElement('td');
+    cell.className = 'question-drag-cell';
+    cell.innerHTML = canDragOrder
+      ? '<button type="button" class="question-drag-handle" draggable="true" data-question-id="' + esc(item.question_id) + '" title="拖动调整位置" aria-label="拖动调整题目位置">≡</button>'
+      : '<button type="button" class="question-drag-handle" disabled title="选择具体问卷组后可拖拽">≡</button>';
+    if (row.firstChild) {
+      row.insertBefore(cell, row.firstChild);
+    } else {
+      row.appendChild(cell);
+    }
+    const handle = cell.querySelector('.question-drag-handle');
+    if (handle && canDragOrder) {
+      handle.addEventListener('dragstart', handleQuestionDragStart);
+      handle.addEventListener('dragend', handleQuestionDragEnd);
+    }
+  });
+}
+
+function findQuestionOrderRow(node) {
+  let current = node;
+  while (current && String(current.tagName || '').toLowerCase() !== 'tr') {
+    current = current.parentElement;
+  }
+  return current;
+}
+
+function currentQuestionOrderRows() {
+  const tbody = document.getElementById('questionnaireTableBody');
+  if (!tbody) return [];
+  return Array.prototype.slice.call(tbody.querySelectorAll('tr[data-question-id]'));
+}
+
+function clearQuestionDragClasses() {
+  currentQuestionOrderRows().forEach(function (row) {
+    setAdminClass(row, 'dragging', false);
+    setAdminClass(row, 'drag-over', false);
+  });
+}
+
+function handleQuestionDragStart(event) {
+  const row = findQuestionOrderRow(event.currentTarget || event.target);
+  const questionId = row ? row.dataset.questionId : '';
+  if (!currentQuestionBlockId() || !questionId) {
+    if (event.preventDefault) event.preventDefault();
+    return;
+  }
+  draggedQuestionId = questionId;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', questionId);
+  }
+  setAdminClass(row, 'dragging', true);
+}
+
+function handleQuestionDragOver(event) {
+  if (!draggedQuestionId) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  const row = findQuestionOrderRow(event.currentTarget || event.target);
+  if (row && row.dataset.questionId !== draggedQuestionId) {
+    setAdminClass(row, 'drag-over', true);
+  }
+}
+
+function handleQuestionDragLeave(event) {
+  const row = findQuestionOrderRow(event.currentTarget || event.target);
+  setAdminClass(row, 'drag-over', false);
+}
+
+function handleQuestionDrop(event) {
+  event.preventDefault();
+  const tbody = document.getElementById('questionnaireTableBody');
+  const targetRow = findQuestionOrderRow(event.currentTarget || event.target);
+  const sourceId = event.dataTransfer ? (event.dataTransfer.getData('text/plain') || draggedQuestionId) : draggedQuestionId;
+  if (!tbody || !targetRow || !sourceId || targetRow.dataset.questionId === sourceId) {
+    clearQuestionDragClasses();
+    return;
+  }
+
+  const rows = currentQuestionOrderRows();
+  const sourceRow = rows.find(function (row) { return row.dataset.questionId === sourceId; });
+  if (!sourceRow) {
+    clearQuestionDragClasses();
+    return;
+  }
+
+  const sourceIndex = rows.indexOf(sourceRow);
+  const targetIndex = rows.indexOf(targetRow);
+  if (sourceIndex < targetIndex) {
+    tbody.insertBefore(sourceRow, targetRow.nextSibling);
+  } else {
+    tbody.insertBefore(sourceRow, targetRow);
+  }
+  refreshQuestionOrderNumbersFromDom();
+  setQuestionOrderDirty(true);
+  clearQuestionDragClasses();
+}
+
+function handleQuestionDragEnd() {
+  draggedQuestionId = '';
+  clearQuestionDragClasses();
+}
+
+function refreshQuestionOrderNumbersFromDom() {
+  currentQuestionOrderRows().forEach(function (row, idx) {
+    const pageCell = row.children && row.children[1];
+    const orderCell = row.children && row.children[2];
+    if (pageCell) pageCell.textContent = String(Math.max(1, Math.ceil((idx + 1) / 5)));
+    if (orderCell) orderCell.textContent = String(idx + 1);
+  });
+}
+
+function collectCurrentQuestionOrder() {
+  return currentQuestionOrderRows()
+    .map(function (row) { return row.dataset.questionId || row.getAttribute('data-question-id') || ''; })
+    .filter(Boolean);
+}
+
+async function adminSaveCurrentQuestionOrder() {
+  const blockId = currentQuestionBlockId();
+  if (!blockId) { adminToast('请先选择具体问卷组，再保存拖拽顺序'); return; }
+  const questionIds = collectCurrentQuestionOrder();
+  if (!questionIds.length) { adminToast('当前问卷组没有可保存的题目'); return; }
+  const button = document.getElementById('saveQuestionOrderBtn');
+  if (button) button.disabled = true;
+
+  try {
+    await apiPost('/admin/questionnaire-blocks/reorder', {
+      block_id: blockId,
+      question_ids: questionIds,
+      page_size: 5
+    });
+    adminToast('当前题目顺序已保存');
+    questionOrderDirty = false;
+    loadQuestionnaire();
+  } catch (e) {
+    setQuestionOrderDirty(true);
+    adminToast('保存顺序失败: ' + e.message);
+  }
 }
 
 function canonicalAdminQuestionId(id) {
