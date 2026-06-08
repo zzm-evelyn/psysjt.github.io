@@ -760,7 +760,10 @@
         <div class="admin-card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
             <h2>剧情情景管理</h2>
-            <button class="admin-btn primary sm" onclick="showSceneForm(null)">+ 新增情景</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+              <button class="admin-btn sm" onclick="adminRenumberScenes()">一键重新编号</button>
+              <button class="admin-btn primary sm" onclick="showSceneForm(null)">+ 新增情景</button>
+            </div>
           </div>
           <div class="admin-table-wrap">
             <table class="admin-table">
@@ -787,7 +790,7 @@
             </div>
             <div style="width:170px;">
               <label>所属游戏</label>
-              <select id="sf_game_key" class="admin-select" onchange="syncSceneGameTitle()">
+              <select id="sf_game_key" class="admin-select" onchange="syncSceneGameTitle(); refreshSceneInsertOptions();">
                 <option value="game_a">情景游戏A</option>
                 <option value="game_b">情景游戏B</option>
               </select>
@@ -800,6 +803,21 @@
           <div class="admin-form-row">
             <label>game_title（被试看见的情景游戏名称）</label>
             <input id="sf_game_title" class="admin-input" placeholder="例：情景游戏A">
+          </div>
+          <div class="admin-form-row">
+            <label>插入位置</label>
+            <div style="display:grid;grid-template-columns:minmax(160px,220px) 1fr;gap:8px;">
+              <select id="sf_insert_mode" class="admin-select" onchange="refreshSceneInsertOptions()">
+                <option value="">保持当前顺序</option>
+                <option value="append">添加到当前游戏末尾</option>
+                <option value="prepend">添加到当前游戏开头</option>
+                <option value="after">插入到某个情景之后</option>
+                <option value="before">插入到某个情景之前</option>
+              </select>
+              <select id="sf_insert_scene_id" class="admin-select" disabled>
+                <option value="">无需选择参考情景</option>
+              </select>
+            </div>
           </div>
           <div class="admin-form-row">
             <label>scene_text（剧情正文）</label>
