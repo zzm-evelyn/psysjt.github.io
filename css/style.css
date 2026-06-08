@@ -783,6 +783,11 @@ body::before {
   stroke: #739E46;
 }
 
+.radar-line.norm-plus-sd {
+  stroke: #38A9BF;
+  stroke-width: 4.5;
+}
+
 .radar-legend {
   display: flex;
   flex-direction: column;
@@ -810,6 +815,10 @@ body::before {
 
 .legend-swatch.norm {
   background: #739E46;
+}
+
+.legend-swatch.norm-plus-sd {
+  background: #38A9BF;
 }
 
 .radar-summary {
