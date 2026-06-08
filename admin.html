@@ -311,6 +311,48 @@
       font-size: 11px;
     }
 
+    .admin-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .question-drag-cell {
+      width: 42px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .question-drag-handle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid #e5d7ca;
+      border-radius: 6px;
+      background: #fffaf5;
+      color: #9a6b4d;
+      cursor: grab;
+      font-size: 16px;
+      line-height: 1;
+      font-family: inherit;
+    }
+
+    .question-drag-handle:active {
+      cursor: grabbing;
+    }
+
+    .question-drag-handle:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .question-order-row.dragging td {
+      opacity: 0.55;
+      background: #f7eadf;
+    }
+
+    .question-order-row.drag-over td {
+      box-shadow: inset 0 2px 0 #d4875e;
+    }
+
     /* Login */
     .login-container {
       max-width: 400px;
@@ -667,6 +709,7 @@
                 <option value="__all__">全部题库</option>
               </select>
               <input id="existingQuestionIdInput" class="admin-input admin-input-sm" placeholder="已有题号">
+              <button id="saveQuestionOrderBtn" class="admin-btn success sm" onclick="adminSaveCurrentQuestionOrder()" disabled>保存当前顺序</button>
               <select id="existingQuestionInsertMode" class="admin-select" style="width:auto;" onchange="refreshExistingQuestionInsertOptions()">
                 <option value="append">加到末尾</option>
                 <option value="prepend">加到开头</option>
