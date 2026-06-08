@@ -63,7 +63,7 @@ function renderPersonalityReport(report) {
     const title = header.querySelector('h1');
     const desc = header.querySelector('p');
     if (title) title.textContent = '人格报告';
-    if (desc) desc.textContent = '本报告基于前30题人格问卷作答生成，不使用剧情体验选择。';
+    if (desc) desc.textContent = '以下结果展示您的大五人格维度均分及其与常模的比较。';
   }
 
   const content = document.getElementById('resultContent');
@@ -102,20 +102,12 @@ function renderPersonalityReport(report) {
           '<div class="norm-bar personal"><span style="width:' + personalWidth.toFixed(1) + '%"></span></div>',
           '<div class="norm-bar norm"><span style="width:' + normWidth.toFixed(1) + '%"></span></div>',
         '</div>',
-        '<div class="norm-meta">题目 ' + (score.answered_count || 0) + '/' + (score.expected_count || 0) +
-          '，常模N=' + (score.norm_sample_size || '-') +
-          (score.norm_note ? '，' + escHtml(score.norm_note) : '') +
-        '</div>',
       '</div>'
     ].join('');
   });
 
   html += [
       '</div>',
-    '</div>',
-    '<div class="result-section">',
-      '<h2>报告说明</h2>',
-      '<p class="result-note">本报告只使用前30题人格问卷。标记为需要反向的题目已先换算到30题常模方向，再计算各维度均分。</p>',
     '</div>'
   ].join('');
   content.innerHTML = html;
