@@ -57,6 +57,34 @@ function clampPercent(value, scaleMin, scaleMax) {
 
 const PERSONALITY_DIMENSION_ORDER = ['外向性', '宜人性', '尽责性', '情绪稳定性', '开放性'];
 
+const PERSONALITY_DIMENSION_DEFINITIONS = [
+  {
+    dimension: '外向性',
+    definition: '外向性描述人际关系的舒适度，这是主要从外部获得满足的状态。它体现在人际交流的乐趣程度、数量、密度等方面，以及获得乐趣的能力。性格外向的人更乐于助人、自信、善于交谈和乐于交际。'
+  },
+  {
+    dimension: '宜人性',
+    definition: '宜人性体现了合作与社会和谐之间的个体差异。它描述了一个人对他周围的人或事物的态度。宜人性被认为是善良，信任，同情，合作和体贴的。'
+  },
+  {
+    dimension: '尽责性（责任心）',
+    definition: '责任心表示个人的谨慎或警惕，例如个人倾向于在采取行动之前先认真思考。责任心分数高的人通常是有效率的，有条理的和有计划的。'
+  },
+  {
+    dimension: '情绪稳定性',
+    definition: '情绪稳定性 描述了一个人在情绪反应、压力应对和心理平衡方面的稳定程度，这与个体的情绪调节能力和压力承受能力有关。情绪稳定性较高的人通常较少受到焦虑、担忧、恐惧、孤独和沮丧等负面情绪的持续影响，在面对压力或挫折时更容易保持冷静、理性和稳定，能够较好地调节情绪并恢复心理平衡。'
+  },
+  {
+    dimension: '开放性',
+    definition: '开放性指体验或体验新颖事物的开放性，反映了个人的好奇心，创造力以及对新颖性和多样性的偏好。它也被描述为一个人的想象力或独立性的程度。高度开放的人们热衷于突破传统，并通过寻求新鲜而令人兴奋的经历来追求自我实现。'
+  }
+];
+
+const PERSONALITY_REPORT_DISCLAIMER = [
+  '本报告结果仅依据本次测量中作答者提交的问卷/测评数据生成，仅反映作答者在本次测量情境下的相对表现与倾向特征。测评结果受作答状态、理解方式、作答认真程度、情境因素以及量表适用范围等因素影响，不能完全代表作答者稳定、全面或绝对的心理特征。',
+  '本报告仅供个人了解、学习研究或参考使用，不应作为临床诊断、心理诊断、就业录用、人员筛选、重大决策或其他高风险判断的唯一依据。如需进行专业判断，请结合更多资料，并咨询相关领域专业人员。'
+];
+
 function getScoreDimension(score) {
   return score.dimension || score.parent_dimension || '-';
 }
@@ -73,8 +101,20 @@ function sortPersonalityScores(scores) {
 }
 
 function radarNumber(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
   const number = Number(value);
   return isFinite(number) ? number : fallback;
+}
+
+function formatTScore(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  const number = Number(value);
+  if (!isFinite(number)) return '-';
+  return Math.abs(number - Math.round(number)) < 0.05 ? String(Math.round(number)) : number.toFixed(1);
+}
+
+function radarAngle(index, total) {
+  return (-Math.PI / 2) + (Math.PI * 2 * index / total);
 }
 
 function radarPoint(index, total, value, scaleMin, scaleMax, center, radius) {
@@ -82,11 +122,20 @@ function radarPoint(index, total, value, scaleMin, scaleMax, center, radius) {
   const max = Number(scaleMax || 5);
   const bounded = Math.max(min, Math.min(max, radarNumber(value, min)));
   const ratio = max > min ? (bounded - min) / (max - min) : 0;
-  const angle = (-Math.PI / 2) + (Math.PI * 2 * index / total);
+  const angle = radarAngle(index, total);
   const distance = ratio * radius;
   return {
     x: center + Math.cos(angle) * distance,
     y: center + Math.sin(angle) * distance
+  };
+}
+
+function radarOffsetPoint(index, total, value, scaleMin, scaleMax, center, radius, offset) {
+  const point = radarPoint(index, total, value, scaleMin, scaleMax, center, radius);
+  const angle = radarAngle(index, total);
+  return {
+    x: point.x + Math.cos(angle) * offset,
+    y: point.y + Math.sin(angle) * offset
   };
 }
 
@@ -96,20 +145,43 @@ function radarPointString(points) {
   }).join(' ');
 }
 
-function buildPersonalityRadar(scores, scaleMin, scaleMax) {
+function getScoreTScore(score) {
+  const existing = radarNumber(score.t_score, null);
+  if (existing !== null) return existing;
+  const meanScore = radarNumber(score.mean_score, null);
+  const normMean = radarNumber(score.norm_mean, null);
+  const normSd = radarNumber(score.norm_sd, null);
+  if (meanScore === null || normMean === null || !normSd) return null;
+  return 50 + 10 * ((meanScore - normMean) / normSd);
+}
+
+function getTScoreScale(scores) {
+  const values = scores.map(getScoreTScore).filter(function (value) {
+    return value !== null && isFinite(value);
+  });
+  values.push(50);
+  const maxDeviation = values.reduce(function (max, value) {
+    return Math.max(max, Math.abs(value - 50));
+  }, 20);
+  const span = Math.max(20, Math.ceil(maxDeviation / 10) * 10);
+  return { min: 50 - span, max: 50 + span };
+}
+
+function buildPersonalityRadar(scores) {
   const size = 520;
   const center = size / 2;
   const radius = 178;
   const labelRadius = 222;
   const levels = 4;
   const total = scores.length;
-  const min = Number(scaleMin || 1);
-  const max = Number(scaleMax || 5);
+  const scale = getTScoreScale(scores);
+  const min = scale.min;
+  const max = scale.max;
 
   let svg = [
     '<div class="personality-radar-wrap">',
       '<div class="personality-radar">',
-        '<svg viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="大五人格个人均分、常模均分与常模平均分加一个标准差雷达图">'
+        '<svg viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="大五人格 T 分数雷达图：个人T分数与常模T分数50对比">'
   ].join('');
 
   for (let level = levels; level >= 1; level--) {
@@ -125,10 +197,10 @@ function buildPersonalityRadar(scores, scaleMin, scaleMax) {
     svg += '<line class="radar-axis" x1="' + center + '" y1="' + center + '" x2="' + end.x.toFixed(1) + '" y2="' + end.y.toFixed(1) + '"></line>';
   });
 
-  for (let level = 1; level <= levels; level++) {
+  for (let level = 0; level <= levels; level++) {
     const value = min + ((max - min) * level / levels);
     const y = center - ((value - min) / (max - min || 1)) * radius;
-    svg += '<text class="radar-scale-label" x="' + (center + 8) + '" y="' + y.toFixed(1) + '">' + formatMean(value) + '</text>';
+    svg += '<text class="radar-scale-label" x="' + (center + 8) + '" y="' + y.toFixed(1) + '">T' + formatTScore(value) + '</text>';
   }
 
   scores.forEach(function (score, index) {
@@ -138,32 +210,71 @@ function buildPersonalityRadar(scores, scaleMin, scaleMax) {
   });
 
   const personalPoints = scores.map(function (score, index) {
-    return radarPoint(index, total, score.mean_score, min, max, center, radius);
+    const tScore = getScoreTScore(score);
+    return radarPoint(index, total, tScore === null ? 50 : tScore, min, max, center, radius);
   });
   const normPoints = scores.map(function (score, index) {
-    return radarPoint(index, total, score.norm_mean, min, max, center, radius);
-  });
-  const normPlusSdPoints = scores.map(function (score, index) {
-    return radarPoint(index, total, radarNumber(score.norm_mean, min) + Math.max(0, radarNumber(score.norm_sd, 0)), min, max, center, radius);
+    return radarPoint(index, total, radarNumber(score.norm_t_score, 50), min, max, center, radius);
   });
 
   svg += [
         '<polygon class="radar-area personal" points="' + radarPointString(personalPoints) + '"></polygon>',
         '<polygon class="radar-area norm" points="' + radarPointString(normPoints) + '"></polygon>',
-        '<polygon class="radar-line norm-plus-sd" points="' + radarPointString(normPlusSdPoints) + '"></polygon>',
         '<polygon class="radar-line personal" points="' + radarPointString(personalPoints) + '"></polygon>',
         '<polygon class="radar-line norm" points="' + radarPointString(normPoints) + '"></polygon>',
+  ].join('');
+
+  scores.forEach(function (score, index) {
+    const tScore = getScoreTScore(score);
+    const labelValue = tScore === null ? 50 : tScore;
+    const scoreLabelPoint = radarOffsetPoint(index, total, labelValue, min, max, center, radius, 18);
+    const anchor = Math.abs(scoreLabelPoint.x - center) < 8 ? 'middle' : (scoreLabelPoint.x > center ? 'start' : 'end');
+    svg += '<text class="radar-score-label" text-anchor="' + anchor + '" x="' + scoreLabelPoint.x.toFixed(1) + '" y="' + scoreLabelPoint.y.toFixed(1) + '">T=' + formatTScore(tScore) + '</text>';
+  });
+
+  svg += [
       '</svg>',
       '</div>',
       '<div class="radar-legend" aria-label="雷达图图例">',
-        '<span><i class="legend-swatch personal"></i>个人均分</span>',
-        '<span><i class="legend-swatch norm"></i>常模均分</span>',
-        '<span><i class="legend-swatch norm-plus-sd"></i>常模平均分+1个标准差</span>',
+        '<span><i class="legend-swatch personal"></i>个人T分数</span>',
+        '<span><i class="legend-swatch norm"></i>常模T分数 50</span>',
       '</div>',
     '</div>'
   ].join('');
 
   return svg;
+}
+
+function buildPersonalityDisclaimer() {
+  return [
+    '<div class="personality-disclaimer" role="note">',
+      '<p>' + escHtml(PERSONALITY_REPORT_DISCLAIMER[0]) + '</p>',
+      '<p>' + escHtml(PERSONALITY_REPORT_DISCLAIMER[1]) + '</p>',
+    '</div>'
+  ].join('');
+}
+
+function buildPersonalityDefinitionList() {
+  let html = [
+    '<div class="dimension-definitions">',
+      '<h3>各维度定义</h3>',
+      '<dl>'
+  ].join('');
+
+  PERSONALITY_DIMENSION_DEFINITIONS.forEach(function (item) {
+    html += [
+      '<div class="dimension-definition-item">',
+        '<dt>' + escHtml(item.dimension) + '</dt>',
+        '<dd>' + escHtml(item.definition) + '</dd>',
+      '</div>'
+    ].join('');
+  });
+
+  html += [
+      '</dl>',
+    '</div>'
+  ].join('');
+  return html;
 }
 
 function renderPersonalityReport(report) {
@@ -174,47 +285,25 @@ function renderPersonalityReport(report) {
     const title = header.querySelector('h1');
     const desc = header.querySelector('p');
     if (title) title.textContent = '人格报告';
-    if (desc) desc.textContent = '以下结果展示您的大五人格维度均分及其与常模的比较。';
+    if (desc) desc.textContent = '以下结果使用 T 分数展示您的大五人格维度相对常模的位置。';
   }
 
   const content = document.getElementById('resultContent');
   if (!content) return;
   const scores = sortPersonalityScores(report.personality_dimension_scores || report.parent_dimension_scores || []);
-  const scaleMin = report.scale_min || 1;
-  const scaleMax = report.scale_max || 5;
 
   if (!scores.length) {
     content.innerHTML = '<div class="warning-message"><h2>提示</h2><p>暂无可展示的人格报告数据。</p></div>';
     return;
   }
 
-  let html = [
+  const html = [
     '<div class="result-section">',
       '<h2>大五人格维度</h2>',
-      '<p class="result-note">雷达图展示您的个人均分、常模均分，以及常模平均分+1个标准差。</p>',
-      buildPersonalityRadar(scores, scaleMin, scaleMax),
-      '<div class="radar-summary">',
-        '<h3>个人得分与常模对比</h3>',
-        '<table class="radar-score-table">',
-          '<thead><tr><th>维度</th><th>个人均分</th><th>常模均分</th><th>差值</th></tr></thead>',
-          '<tbody>'
-  ].join('');
-
-  scores.forEach(function (score) {
-    html += [
-      '<tr>',
-        '<td>' + escHtml(getScoreDimension(score)) + '</td>',
-        '<td>' + formatMean(score.mean_score) + '</td>',
-        '<td>' + formatMean(score.norm_mean) + '</td>',
-        '<td>' + formatSigned(score.difference_from_norm) + '</td>',
-      '</tr>'
-    ].join('');
-  });
-
-  html += [
-          '</tbody>',
-        '</table>',
-      '</div>',
+      buildPersonalityDisclaimer(),
+      '<p class="result-note">T 分数雷达图展示每个维度的个人T分数，并以常模T分数 50 作为基线。</p>',
+      buildPersonalityRadar(scores),
+      buildPersonalityDefinitionList(),
     '</div>'
   ].join('');
   content.innerHTML = html;
