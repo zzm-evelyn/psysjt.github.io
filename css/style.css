@@ -712,6 +712,19 @@ body::before {
   margin-bottom: 16px;
 }
 
+.personality-disclaimer {
+  border-left: 4px solid var(--accent);
+  padding: 2px 0 2px 14px;
+  margin-bottom: 18px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.75;
+}
+
+.personality-disclaimer p + p {
+  margin-top: 8px;
+}
+
 .personality-radar-wrap {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(150px, 190px);
@@ -756,6 +769,17 @@ body::before {
   dominant-baseline: middle;
 }
 
+.radar-score-label {
+  fill: var(--primary-hover);
+  font-size: 13px;
+  font-weight: 700;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+
 .radar-area {
   stroke: none;
 }
@@ -781,11 +805,6 @@ body::before {
 
 .radar-line.norm {
   stroke: #739E46;
-}
-
-.radar-line.norm-plus-sd {
-  stroke: #38A9BF;
-  stroke-width: 4.5;
 }
 
 .radar-legend {
@@ -817,51 +836,40 @@ body::before {
   background: #739E46;
 }
 
-.legend-swatch.norm-plus-sd {
-  background: #38A9BF;
+.dimension-definitions {
+  margin-top: 22px;
 }
 
-.radar-summary {
-  margin-top: 18px;
-}
-
-.radar-summary h3 {
+.dimension-definitions h3 {
   color: var(--text);
   font-size: 1rem;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
-.radar-score-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.92rem;
+.dimension-definitions dl {
+  margin: 0;
 }
 
-.radar-score-table th,
-.radar-score-table td {
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--border-light);
-  text-align: center;
+.dimension-definition-item {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-light);
 }
 
-.radar-score-table th:first-child,
-.radar-score-table td:first-child {
-  text-align: left;
+.dimension-definition-item dt {
+  color: var(--primary-hover);
+  font-weight: 700;
 }
 
-.radar-score-table th {
-  color: var(--text-muted);
-  font-weight: 600;
-}
-
-.radar-score-table td {
+.dimension-definition-item dd {
+  margin: 0;
   color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.75;
 }
 
-.radar-score-table td:first-child {
-  color: var(--text);
-  font-weight: 600;
-}
 
 .dim-desc {
   font-size: 0.8rem;
@@ -951,13 +959,13 @@ body::before {
     font-size: 13px;
   }
 
-  .radar-score-table {
-    font-size: 0.84rem;
+  .radar-score-label {
+    font-size: 11px;
   }
 
-  .radar-score-table th,
-  .radar-score-table td {
-    padding: 8px 4px;
+  .dimension-definition-item {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }
 
