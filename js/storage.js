@@ -87,20 +87,22 @@ function applyParticipantSession(result, externalId) {
 
 async function startParticipantSession(customId, options) {
   options = options || {};
-  if (options.forceNew) {
+  const action = options.action ? String(options.action) : '';
+
+  // 如果已有有效的后端会话，优先继续当前会话，避免刷新/重复点击生成多个空白记录。
+  const existingId = _getItem(STORAGE_KEYS.PARTICIPANT_ID);
+  if (existingId && hasBackendSession() && action !== 'restart') return existingId;
+
+  if (options.forceNew || action === 'restart') {
     clearParticipantData();
   }
-
-  // 如果已有会话则复用
-  const existingId = _getItem(STORAGE_KEYS.PARTICIPANT_ID);
-  if (existingId) return existingId;
 
   const externalId = customId && customId.trim() ? customId.trim() : '';
 
   // 尝试调用后端 API。成功后必须使用后端返回的 participant_id。
   try {
     const body = { external_id: externalId };
-    if (options.action) body.action = options.action;
+    if (action) body.action = action;
     const result = await apiPost('/participants/start', body);
     if (result.status === 'resume_available' || result.status === 'already_completed') {
       return result;
