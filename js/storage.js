@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
   PARTICIPANT_CODE: 'participant_code',
   EXTERNAL_ID: 'external_id',
   BACKEND_SESSION_ACTIVE: 'backend_session_active',
+  COMPLETION_STATUS: 'completion_status',
   START_TIME: 'start_time',
   QUESTIONNAIRE_START_TIME: 'questionnaire_start_time',
   QUESTIONNAIRE_END_TIME: 'questionnaire_end_time',
@@ -70,6 +71,7 @@ function applyParticipantSession(result, externalId) {
   _setItem(STORAGE_KEYS.PARTICIPANT_CODE, result.participant_code || '');
   _setItem(STORAGE_KEYS.EXTERNAL_ID, result.external_id || externalId || '');
   _setItem(STORAGE_KEYS.BACKEND_SESSION_ACTIVE, true);
+  _setItem(STORAGE_KEYS.COMPLETION_STATUS, result.completion_status || '');
   _setItem(STORAGE_KEYS.START_TIME, result.start_time || new Date().toISOString());
   _setItem(STORAGE_KEYS.GAME_ORDER, normalizeGameOrder(result.game_order));
   _setItem(STORAGE_KEYS.CURRENT_GAME_INDEX, 0);
@@ -85,19 +87,44 @@ function applyParticipantSession(result, externalId) {
   return result.participant_id;
 }
 
+function normalizeExternalId(value) {
+  return String(value || '').trim();
+}
+
+function isCachedParticipantSessionFinished() {
+  const status = _getItem(STORAGE_KEYS.COMPLETION_STATUS);
+  if (status === 'completed' || status === 'abandoned') return true;
+
+  const currentStep = _getItem(STORAGE_KEYS.CURRENT_FLOW_STEP);
+  if (_getItem(STORAGE_KEYS.FLOW_ENABLED) === true && currentStep && currentStep.type === 'complete') {
+    return true;
+  }
+
+  if (_getItem(STORAGE_KEYS.FLOW_ENABLED) !== true &&
+      _getItem(STORAGE_KEYS.QUESTIONNAIRE_COMPLETED) === true &&
+      _getItem(STORAGE_KEYS.GAME_COMPLETED) === true) {
+    return true;
+  }
+
+  return false;
+}
+
 async function startParticipantSession(customId, options) {
   options = options || {};
   const action = options.action ? String(options.action) : '';
+  const externalId = normalizeExternalId(customId);
 
-  // 如果已有有效的后端会话，优先继续当前会话，避免刷新/重复点击生成多个空白记录。
+  // 仅在编号一致时复用现有后端会话，避免输入新编号却跳回旧作答/旧报告。
   const existingId = _getItem(STORAGE_KEYS.PARTICIPANT_ID);
-  if (existingId && hasBackendSession() && action !== 'restart') return existingId;
+  const existingExternalId = normalizeExternalId(_getItem(STORAGE_KEYS.EXTERNAL_ID));
+  const sameExternalId = !externalId || (existingExternalId && externalId === existingExternalId);
+  if (existingId && hasBackendSession() && action !== 'restart' && sameExternalId && !isCachedParticipantSessionFinished()) {
+    return existingId;
+  }
 
   if (options.forceNew || action === 'restart') {
     clearParticipantData();
   }
-
-  const externalId = customId && customId.trim() ? customId.trim() : '';
 
   // 尝试调用后端 API。成功后必须使用后端返回的 participant_id。
   try {
@@ -274,6 +301,9 @@ async function completeFlowStep(stepId) {
     step_id: stepId
   });
   _setItem(STORAGE_KEYS.CURRENT_FLOW_STEP, result.next_step || null);
+  if (result && result.completion_status) {
+    _setItem(STORAGE_KEYS.COMPLETION_STATUS, result.completion_status);
+  }
   return result;
 }
 
@@ -386,6 +416,9 @@ async function completeQuestionnaire(context) {
     if (result && result.next_step) {
       _setItem(STORAGE_KEYS.CURRENT_FLOW_STEP, result.next_step);
     }
+    if (result && result.completion_status) {
+      _setItem(STORAGE_KEYS.COMPLETION_STATUS, result.completion_status);
+    }
   }
 
   _setItem(STORAGE_KEYS.QUESTIONNAIRE_END_TIME, new Date().toISOString());
@@ -473,6 +506,9 @@ async function completeGame(gameKey, gameTitle, context) {
     if (scores && scores.next_step) {
       _setItem(STORAGE_KEYS.CURRENT_FLOW_STEP, scores.next_step);
     }
+    if (scores && scores.completion_status) {
+      _setItem(STORAGE_KEYS.COMPLETION_STATUS, scores.completion_status);
+    }
   } else {
     scores = calculateGameScores(gameKey, gameTitle);
   }
@@ -532,6 +568,7 @@ function getParticipantData() {
     participant_code: _getItem(STORAGE_KEYS.PARTICIPANT_CODE),
     external_id: _getItem(STORAGE_KEYS.EXTERNAL_ID),
     backend_session_active: _getItem(STORAGE_KEYS.BACKEND_SESSION_ACTIVE),
+    completion_status: _getItem(STORAGE_KEYS.COMPLETION_STATUS),
     start_time: _getItem(STORAGE_KEYS.START_TIME),
     questionnaire_start_time: _getItem(STORAGE_KEYS.QUESTIONNAIRE_START_TIME),
     questionnaire_end_time: _getItem(STORAGE_KEYS.QUESTIONNAIRE_END_TIME),
