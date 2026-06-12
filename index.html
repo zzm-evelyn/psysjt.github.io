@@ -42,10 +42,10 @@
 
       <div class="participant-id-section">
         <label for="participantIdInput"><strong>👤 请输入您的编号</strong></label>
-        <input id="participantIdInput" class="form-input participant-id-input" type="text" placeholder="留空将自动生成编号" autocomplete="off">
+        <input id="participantIdInput" class="form-input participant-id-input" type="text" placeholder="请输入研究者提供的编号" autocomplete="off" required>
       </div>
 
-      <button class="btn btn-primary btn-block btn-lg" onclick="startStudy()">
+      <button id="startStudyBtn" class="btn btn-primary btn-block btn-lg" onclick="startStudy()">
         开始填写问卷
       </button>
     </div>
@@ -58,34 +58,74 @@
   <script src="js/scoring.js"></script>
   <script src="js/app.js"></script>
   <script>
+    var startStudyInProgress = false;
+
+    function setStartStudyBusy(isBusy) {
+      var startButton = document.getElementById('startStudyBtn');
+      if (!startButton) return;
+      startButton.disabled = isBusy;
+      startButton.textContent = isBusy ? '正在进入...' : '开始填写问卷';
+    }
+
+    function stopStartStudyAttempt() {
+      startStudyInProgress = false;
+      setStartStudyBusy(false);
+    }
+
     async function startStudy() {
-      var customId = document.getElementById('participantIdInput') ? document.getElementById('participantIdInput').value.trim() : '';
-      var sessionResult = await startParticipantSession(customId || undefined, { forceNew: true });
-      if (sessionResult && typeof sessionResult === 'object') {
-        if (sessionResult.status === 'already_completed') {
-          alert('该编号已完成，不能重复填写。如需重测，请联系研究者使用新的编号。');
-          return;
-        }
-        if (sessionResult.status === 'resume_available') {
-          var shouldResume = confirm('检测到该编号有未完成作答。\n\n点击“确定”继续之前的作答；点击“取消”可以选择重新开始。');
-          if (shouldResume) {
-            sessionResult = await startParticipantSession(customId || undefined, { forceNew: true, action: 'resume' });
-          } else {
-            var shouldRestart = confirm('确定要重新开始吗？之前未完成的记录会标记为 abandoned，不会再用于本次作答。');
-            if (!shouldRestart) return;
-            sessionResult = await startParticipantSession(customId || undefined, { forceNew: true, action: 'restart' });
-          }
-        }
-        if (sessionResult && typeof sessionResult === 'object' && sessionResult.status === 'already_completed') {
-          alert('该编号已完成，不能重复填写。如需重测，请联系研究者使用新的编号。');
-          return;
-        }
-      }
-      if (!hasBackendSession()) {
-        alert('后端连接失败，当前作答不会进入阿里云后台。请稍后重试，或先检查后端 API 是否可用。');
+      if (startStudyInProgress) return;
+
+      var input = document.getElementById('participantIdInput');
+      var customId = input ? input.value.trim() : '';
+      var participantData = typeof getParticipantData === 'function' ? getParticipantData() : {};
+      var hasExistingBackendParticipant = participantData && participantData.participant_id && hasBackendSession();
+      if (!customId && !hasExistingBackendParticipant) {
+        alert('请先输入您的编号，再开始填写问卷。');
+        if (input && typeof input.focus === 'function') input.focus();
         return;
       }
-      await navigateToCurrentFlowOrFallback('questionnaire.html');
+
+      startStudyInProgress = true;
+      setStartStudyBusy(true);
+
+      try {
+        var sessionResult = await startParticipantSession(customId || participantData.external_id, { forceNew: true });
+        if (sessionResult && typeof sessionResult === 'object') {
+          if (sessionResult.status === 'already_completed') {
+            alert('该编号已完成，不能重复填写。如需重测，请联系研究者使用新的编号。');
+            stopStartStudyAttempt();
+            return;
+          }
+          if (sessionResult.status === 'resume_available') {
+            var shouldResume = confirm('检测到该编号有未完成作答。\n\n点击“确定”继续之前的作答；点击“取消”可以选择重新开始。');
+            if (shouldResume) {
+              sessionResult = await startParticipantSession(customId, { forceNew: true, action: 'resume' });
+            } else {
+              var shouldRestart = confirm('确定要重新开始吗？之前未完成的记录会标记为 abandoned，不会再用于本次作答。');
+              if (!shouldRestart) {
+                stopStartStudyAttempt();
+                return;
+              }
+              sessionResult = await startParticipantSession(customId, { forceNew: true, action: 'restart' });
+            }
+          }
+          if (sessionResult && typeof sessionResult === 'object' && sessionResult.status === 'already_completed') {
+            alert('该编号已完成，不能重复填写。如需重测，请联系研究者使用新的编号。');
+            stopStartStudyAttempt();
+            return;
+          }
+        }
+        if (!hasBackendSession()) {
+          alert('后端连接失败，当前作答不会进入阿里云后台。请稍后重试，或先检查后端 API 是否可用。');
+          stopStartStudyAttempt();
+          return;
+        }
+        await navigateToCurrentFlowOrFallback('questionnaire.html');
+      } catch (e) {
+        console.error('[index] 启动实验失败:', e);
+        alert('启动失败，请检查网络后重试。');
+        stopStartStudyAttempt();
+      }
     }
   </script>
 </body>
