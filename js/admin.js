@@ -1433,7 +1433,7 @@ async function loadParticipants() {
   try {
     let url = '/admin/participants';
     if (filter) url += '?completion_status=' + encodeURIComponent(filter);
-    const list = await apiGet(url);
+    const list = await apiGet(url, { timeout: 60000 });
     tbody.innerHTML = list.map(p => {
       const statusMap = {
         'in_progress': '进行中',

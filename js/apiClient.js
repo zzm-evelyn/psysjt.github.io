@@ -68,7 +68,7 @@ async function apiRequest(method, path, data, options = {}) {
 
       return result;
     } catch (error) {
-      if (error.name === 'AbortError') {
+      if (error.name === 'AbortError' || error.name === 'TimeoutError') {
         throw new Error('请求超时，请检查网络或后端服务是否可用');
       }
       if (attempt < maxRetries) {
@@ -113,7 +113,7 @@ async function apiDelete(path, options = {}) {
  * 下载文件
  */
 async function downloadFile(path, filename) {
-  return apiRequest('GET', path, null, { download: true, filename: filename });
+  return apiRequest('GET', path, null, { download: true, filename: filename, timeout: 120000 });
 }
 
 /**
