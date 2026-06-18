@@ -30,6 +30,8 @@ const STORAGE_KEYS = {
   FLOW_COMPLETED_STEP_IDS: 'flow_completed_step_ids'
 };
 
+const START_PARTICIPANT_TIMEOUT_MS = 60000;
+
 // ---- Helpers ----
 function _getItem(key) {
   try {
@@ -130,7 +132,10 @@ async function startParticipantSession(customId, options) {
   try {
     const body = { external_id: externalId };
     if (action) body.action = action;
-    const result = await apiPost('/participants/start', body);
+    const result = await apiPost('/participants/start', body, {
+      timeout: START_PARTICIPANT_TIMEOUT_MS,
+      retries: 0
+    });
     if (result.status === 'resume_available' || result.status === 'already_completed') {
       return result;
     }
