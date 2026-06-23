@@ -1607,19 +1607,99 @@ function initExport() {
   const container = document.getElementById('exportButtons');
   const exports = [
     { label: '被试总表', csv: '/admin/export/participants.csv', xlsx: '/admin/export/participants.xlsx' },
-    { label: '问卷明细', csv: '/admin/export/questionnaire-responses.csv', xlsx: '/admin/export/questionnaire-responses.xlsx' },
-    { label: '剧情明细', csv: '/admin/export/game-responses.csv', xlsx: '/admin/export/game-responses.xlsx' },
     { label: '一级维度得分', csv: '/admin/export/parent-dimension-scores.csv', xlsx: '/admin/export/parent-dimension-scores.xlsx' },
     { label: '子维度得分', csv: '/admin/export/facet-dimension-scores.csv', xlsx: '/admin/export/facet-dimension-scores.xlsx' }
   ];
 
-  container.innerHTML = exports.map(ex => {
-    const btnId = 'export_' + ex.label;
+  const standardExports = exports.map(ex => {
     return '<div><div style="font-size:13px;font-weight:500;margin-bottom:4px;">' + esc(ex.label) + '</div><div style="display:flex;gap:4px;">' +
       '<button class="export-btn" onclick="downloadAdminFile(\'' + ex.csv + '\', \'' + ex.label + '.csv\')"><span class="ext">CSV</span> 下载</button>' +
       '<button class="export-btn" onclick="downloadAdminFile(\'' + ex.xlsx + '\', \'' + ex.label + '.xlsx\')"><span class="ext">XLSX</span> 下载</button>' +
       '</div></div>';
   }).join('');
+
+  const mergedExport = '<div><div style="font-size:13px;font-weight:500;margin-bottom:4px;">合并作答数据</div>' +
+    '<div id="mergedExportStatus" style="font-size:12px;color:#777;margin-bottom:5px;">每位被试一行，问卷与剧情题目合并为列</div>' +
+    '<button class="export-btn" id="mergedExportButton" onclick="startMergedExport()"><span class="ext">XLSX</span> 生成并下载</button></div>';
+  container.innerHTML = mergedExport + standardExports;
+}
+
+function renderMergedExportState(job, message) {
+  const button = document.getElementById('mergedExportButton');
+  const status = document.getElementById('mergedExportStatus');
+  if (!button || !status) return;
+
+  if (message) {
+    status.textContent = message;
+    return;
+  }
+
+  const total = job.total_count || 0;
+  const processed = job.processed_count || 0;
+  if (job.status === 'queued') {
+    button.disabled = true;
+    button.textContent = '正在排队…';
+    status.textContent = '导出任务已创建，正在等待处理';
+  } else if (job.status === 'running') {
+    button.disabled = true;
+    button.textContent = '正在生成…';
+    status.textContent = '正在处理 ' + processed + ' / ' + total + ' 位被试';
+  } else if (job.status === 'completed') {
+    button.disabled = true;
+    button.textContent = '正在下载…';
+    status.textContent = '文件已生成，正在开始下载';
+  } else if (job.status === 'failed') {
+    button.disabled = false;
+    button.textContent = '重新生成';
+    status.textContent = '生成失败: ' + (job.error || '未知错误');
+  }
+}
+
+async function startMergedExport() {
+  const button = document.getElementById('mergedExportButton');
+  if (button && button.disabled) return;
+  if (button) button.disabled = true;
+  renderMergedExportState(null, '正在创建合并导出任务…');
+
+  try {
+    const job = await apiPost('/admin/export/merged-responses/jobs', {});
+    renderMergedExportState(job);
+    if (job.status === 'failed') {
+      adminToast('合并导出任务创建失败');
+      return;
+    }
+    pollMergedExport(job.job_id);
+  } catch (e) {
+    if (button) button.disabled = false;
+    renderMergedExportState(null, '创建失败: ' + e.message);
+    adminToast('合并导出创建失败: ' + e.message);
+  }
+}
+
+function pollMergedExport(jobId) {
+  window.setTimeout(async function () {
+    try {
+      const job = await apiGet('/admin/export/jobs/' + encodeURIComponent(jobId));
+      renderMergedExportState(job);
+      if (job.status === 'completed') {
+        if (!job.download_url) {
+          renderMergedExportState(null, '文件已生成，但暂时无法获取下载地址');
+          return;
+        }
+        if (job.download_requires_auth) {
+          await downloadAdminFile(job.download_url, '合并作答数据.xlsx');
+        } else {
+          window.location.assign(job.download_url);
+        }
+        return;
+      }
+      if (job.status !== 'failed') pollMergedExport(jobId);
+    } catch (e) {
+      renderMergedExportState(null, '状态查询失败: ' + e.message);
+      const button = document.getElementById('mergedExportButton');
+      if (button) button.disabled = false;
+    }
+  }, 1500);
 }
 
 async function downloadAdminFile(path, filename) {
